@@ -1,0 +1,194 @@
+"""
+Qdrant Sharding Operations CLI
+
+This is the command-line interface for Qdrant distributed cluster management.
+It provides a thin wrapper around the qdrant_distributed package.
+
+Documentation: https://api.qdrant.tech/master/api-reference/distributed/update-collection-cluster
+"""
+
+import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+
+from qdrant_distributed.constant import SHARED_COLLECTION_NAME
+from qdrant_distributed.client.qdrant_client import QdrantClientManager
+# Import refactored modules
+from qdrant_distributed import ShardOperations, ClusterOperations
+from qdrant_distributed.models import ShardTransferMethod
+from qdrant_distributed.exceptions import QdrantShardingError, ValidationError
+from qdrant_distributed.cli import ResultFormatter, create_argument_parser
+from qdrant_distributed.cli.parser import validate_args
+
+
+def main() -> int:
+    """
+    Main entry point for Qdrant sharding operations CLI.
+    
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
+    # Parse command-line arguments
+    parser = create_argument_parser(default_collection=SHARED_COLLECTION_NAME)
+    args = parser.parse_args()
+    
+    # Validate arguments
+    try:
+        validate_args(parser, args)
+    except SystemExit:
+        return 1
+    
+    # Display operation header
+    formatter = ResultFormatter()
+    formatter.print_header("🔧 Qdrant Sharding Operations")
+    print(f"Collection: {args.collection}")
+    
+    if args.list_shards:
+        print("Operation: List Shards")
+    else:
+        if args.move_shard or args.replicate_shard:
+            print(f"From Peer: {args.from_peer}")
+            print(f"To Peer: {args.to_peer}")
+            if args.move_shard:
+                print(f"Operation: Move All Shards (method: {args.method})")
+            else:
+                print(f"Operation: Replicate All Shards (method: {args.method})")
+        else:
+            print(f"Shard ID: {args.shard_id}")
+            print(f"From Peer: {args.from_peer}")
+            print(f"To Peer: {args.to_peer}")
+            print(f"Operation: Abort Transfer")
+    
+    if args.timeout:
+        print(f"Timeout: {args.timeout}s")
+    print("=" * 80)
+    print()
+    
+    try:
+        # Initialize QdrantClientManager (from existing configuration)
+        print("🔌 Initializing Qdrant client...")
+        QdrantClientManager.initialize()
+        print("✅ Qdrant client initialized")
+        print()
+        
+        # Initialize operations
+        shard_ops = ShardOperations()
+        cluster_ops = ClusterOperations()
+        
+        # Execute operation
+        if args.move_shard:
+            print(f"🚀 Moving all shards from peer {args.from_peer} to peer {args.to_peer}")
+            print(f"   Method: {args.method}")
+            print()
+            
+            # Get all shards from both peers
+            print(f"📋 Getting shard information from peers...")
+            all_peer_shards = cluster_ops.list_all_shards(
+                collection_name=args.collection,
+                timeout=args.timeout
+            )
+            print()
+            
+            # Use move_all to handle the entire workflow
+            shard_ops.move_all(
+                collection_name=args.collection,
+                all_shards=all_peer_shards,
+                from_peer_id=args.from_peer,
+                to_peer_id=args.to_peer,
+                method=ShardTransferMethod(args.method),
+                timeout=args.timeout
+            )
+        
+        elif args.replicate_shard:
+            print(f"🔁 Replicating all shards from peer {args.from_peer} to peer {args.to_peer}")
+            print(f"   Method: {args.method}")
+            print()
+            
+            # Get all shards from both peers
+            print(f"📋 Getting shard information from peers...")
+            all_peer_shards = cluster_ops.list_all_shards(
+                collection_name=args.collection,
+                timeout=args.timeout
+            )
+            print()
+            
+            # Use replicate_all to handle the entire workflow
+            shard_ops.replicate_all(
+                collection_name=args.collection,
+                all_shards=all_peer_shards,
+                from_peer_id=args.from_peer,
+                to_peer_id=args.to_peer,
+                method=ShardTransferMethod(args.method),
+                timeout=args.timeout
+            )
+        
+        elif args.abort_transfer:
+            print(f"🛑 Aborting transfer for shard {args.shard_id} from peer {args.from_peer} to peer {args.to_peer}")
+            print()
+            
+            result = shard_ops.abort_transfer(
+                collection_name=args.collection,
+                shard_id=args.shard_id,
+                from_peer_id=args.from_peer,
+                to_peer_id=args.to_peer,
+                timeout=args.timeout
+            )
+            
+            formatter.print_operation_result(result)
+        
+        elif args.list_shards:
+            print(f"📋 Listing all local shards from each peer in the cluster")
+            print()
+            
+            peer_shards = cluster_ops.list_all_shards(
+                collection_name=args.collection,
+                timeout=args.timeout
+            )
+            
+            formatter.print_shard_list(peer_shards)
+        
+        print("\n" + "=" * 80)
+        print("✨ Operation completed")
+        print("=" * 80)
+        
+        return 0
+        
+    except ValidationError as e:
+        formatter.print_error(
+            "Validation Error",
+            str(e),
+            ["Please check your input parameters and try again."]
+        )
+        return 1
+        
+    except QdrantShardingError as e:
+        formatter.print_error(
+            "Operation Failed",
+            str(e),
+            [
+                "Qdrant server is running and accessible",
+                "Collection exists",
+                "Peer IDs are valid",
+                "Shard ID exists in the collection"
+            ]
+        )
+        return 1
+        
+    except Exception as e:
+        formatter.print_error(
+            "Unexpected Error",
+            f"{type(e).__name__}: {e}"
+        )
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+

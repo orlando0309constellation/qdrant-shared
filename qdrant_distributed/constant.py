@@ -1,0 +1,1 @@
+SHARED_COLLECTION_NAME="shared_vectors_hybrid"
