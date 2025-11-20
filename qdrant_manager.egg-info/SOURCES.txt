@@ -28,6 +28,7 @@ qdrant_distributed/scripts/scheduler.py
 qdrant_distributed/services/__init__.py
 qdrant_distributed/services/cluster_service.py
 qdrant_distributed/services/mongo_service.py
+qdrant_distributed/services/mysql_service.py
 qdrant_distributed/services/shard_service.py
 qdrant_manager.egg-info/PKG-INFO
 qdrant_manager.egg-info/SOURCES.txt

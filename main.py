@@ -24,8 +24,9 @@ from qdrant_distributed.models import ShardTransferMethod, PeerInfo
 from qdrant_distributed.exceptions import QdrantShardingError, ValidationError
 from qdrant_distributed.cli import ResultFormatter, create_argument_parser
 from qdrant_distributed.cli.parser import validate_args
-from qdrant_distributed.config import MongoManager
-from qdrant_distributed.services.mongo_service import MongoService
+from qdrant_distributed.config import MySQLManager
+from qdrant_distributed.services.mysql_service import MySQLService
+# Note: MongoDB support is deprecated - using MySQL by default
 from typing import Dict, List
 from qdrant_distributed.models.shard import ShardInfo
 
@@ -107,13 +108,13 @@ def main() -> int:
         print("[+] Qdrant client initialized")
         print()
         
-        # Initialize MongoDB if needed
-        mongo_service = None
+        # Initialize MySQL if needed (MySQL is now the default for --save, -ml, --latest)
+        mysql_service = None
         if args.save or args.last_mongo or args.latest:
-            print("[*] Initializing MongoDB connection...")
-            MongoManager.initialize()
-            mongo_service = MongoService()
-            print("[+] MongoDB connection initialized")
+            print("[*] Initializing MySQL connection...")
+            MySQLManager.initialize()
+            mysql_service = MySQLService()
+            print("[+] MySQL connection initialized")
             print()
         
         # Initialize operations
@@ -128,9 +129,9 @@ def main() -> int:
             
             # Get all shards from both peers
             if args.latest:
-                print(f"📋 Getting shard information from MongoDB (latest)...")
-                all_peer_shards = mongo_service.get_latest_peers_as_dict()
-                print(f"✓ Retrieved peer information from MongoDB")
+                print(f"📋 Getting shard information from MySQL (latest)...")
+                all_peer_shards = mysql_service.get_latest_peers_as_dict()
+                print(f"✓ Retrieved peer information from MySQL")
             else:
                 print(f"📋 Getting shard information from peers...")
                 all_peer_shards = cluster_ops.list_all_shards(
@@ -156,9 +157,9 @@ def main() -> int:
             
             # Get all shards from both peers
             if args.latest:
-                print(f"📋 Getting shard information from MongoDB (latest)...")
-                all_peer_shards = mongo_service.get_latest_peers_as_dict()
-                print(f"✓ Retrieved peer information from MongoDB")
+                print(f"📋 Getting shard information from MySQL (latest)...")
+                all_peer_shards = mysql_service.get_latest_peers_as_dict()
+                print(f"✓ Retrieved peer information from MySQL")
             else:
                 print(f"📋 Getting shard information from peers...")
                 all_peer_shards = cluster_ops.list_all_shards(
@@ -193,13 +194,13 @@ def main() -> int:
         
         elif args.list_shards:
             if args.last_mongo:
-                print(f"[*] Retrieving peer information from MongoDB (latest)")
+                print(f"[*] Retrieving peer information from MySQL (latest)")
                 print()
                 
                 # Fetch once and reuse to avoid duplicate queries
-                latest_doc = mongo_service.get_latest_peers()
-                peer_shards = mongo_service.get_latest_peers_as_dict(latest_doc)
-                peer_uris = mongo_service.get_latest_peer_uris(latest_doc)
+                latest_doc = mysql_service.get_latest_peers()
+                peer_shards = mysql_service.get_latest_peers_as_dict(latest_doc)
+                peer_uris = mysql_service.get_latest_peer_uris(latest_doc)
                 formatter.print_shard_list(peer_shards, peer_uris)
             else:
                 print(f"[*] Listing all local shards from each peer in the cluster")
@@ -218,12 +219,12 @@ def main() -> int:
                 
                 formatter.print_shard_list(peer_shards, peer_uris)
                 
-                # Save to MongoDB if requested (reuse cached peers_dict)
+                # Save to MySQL if requested (reuse cached peers_dict)
                 if args.save:
-                    print(f"\n[*] Saving peer information to MongoDB...")
+                    print(f"\n[*] Saving peer information to MySQL...")
                     peer_info_list = convert_peer_shards_to_peer_info(peer_shards, peers_dict)
-                    mongo_service.save_peers(peer_info_list)
-                    print(f"[+] Peer information saved to MongoDB")
+                    mysql_service.save_peers(peer_info_list)
+                    print(f"[+] Peer information saved to MySQL")
         
         print("\n" + "=" * 80)
         print("[+] Operation completed")
