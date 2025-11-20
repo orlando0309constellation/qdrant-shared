@@ -362,3 +362,4 @@ qdrant-shard -ls --timeout 300
 - [Qdrant Distributed Documentation](https://api.qdrant.tech/master/api-reference/distributed/update-collection-cluster)
 - [Qdrant Client Documentation](https://qdrant.tech/documentation/)
 
+<!-- cd D:\projet\Official\qdrant-manager; uv pip install -e . -->

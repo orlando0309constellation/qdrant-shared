@@ -23,6 +23,8 @@ qdrant_distributed/models/shard.py
 qdrant_distributed/operations/__init__.py
 qdrant_distributed/operations/cluster_operations.py
 qdrant_distributed/operations/shard_operations.py
+qdrant_distributed/scripts/__init__.py
+qdrant_distributed/scripts/scheduler.py
 qdrant_distributed/services/__init__.py
 qdrant_distributed/services/cluster_service.py
 qdrant_distributed/services/mongo_service.py
