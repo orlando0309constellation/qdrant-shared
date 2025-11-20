@@ -111,11 +111,11 @@ class ShardOperations:
                     results.append((shard.shard_id, None, error_msg))
                     print(f"   ❌ Shard {shard.shard_id} failed: {error_msg}")
                     print()
-                
-                # Print summary
-                successful = sum(1 for _, r, e in results if e is None)
-                failed = len(results) - successful
-                print(f"📊 Summary: {successful} successful, {failed} failed out of {len(results)} shard(s)")
+            
+            # Print summary after all shards are processed
+            successful = sum(1 for _, r, e in results if e is None)
+            failed = len(results) - successful
+            print(f"📊 Summary: {successful} successful, {failed} failed out of {len(results)} shard(s)")
         return results
 
 
@@ -162,11 +162,11 @@ class ShardOperations:
                         results.append((shard.shard_id, None, error_msg))
                         print(f"   ❌ Shard {shard.shard_id} failed: {error_msg}")
                 print()
-                
-                # Print summary
-                successful = sum(1 for _, r, e in results if e is None)
-                failed = len(results) - successful
-                print(f"📊 Summary: {successful} successful, {failed} failed out of {len(results)} shard(s)")
+            
+            # Print summary after all shards are processed
+            successful = sum(1 for _, r, e in results if e is None)
+            failed = len(results) - successful
+            print(f"📊 Summary: {successful} successful, {failed} failed out of {len(results)} shard(s)")
         return results
 
     def replicate(

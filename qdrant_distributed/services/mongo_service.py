@@ -41,9 +41,12 @@ class MongoService:
         peers_logs = self.mongo_manager.db.get_collection("peers_logs")
         return peers_logs.find_one(sort=[("timestamp", -1)])
     
-    def get_latest_peers_as_dict(self) -> Dict[int, List[ShardInfo]]:
+    def get_latest_peers_as_dict(self, latest_doc: Dict = None) -> Dict[int, List[ShardInfo]]:
         """
         Get the latest peers from MongoDB and convert to the format used by list_all_shards.
+        
+        Args:
+            latest_doc: Optional pre-fetched document to avoid duplicate queries
         
         Returns:
             Dictionary mapping peer_id to list of ShardInfo objects
@@ -51,7 +54,8 @@ class MongoService:
         Raises:
             ValueError: If no peer data found in MongoDB
         """
-        latest_doc = self.get_latest_peers()
+        if latest_doc is None:
+            latest_doc = self.get_latest_peers()
         if latest_doc is None or "peers" not in latest_doc:
             raise ValueError("No peer data found in MongoDB")
         
@@ -64,9 +68,12 @@ class MongoService:
         
         return peer_shards
     
-    def get_latest_peer_uris(self) -> Dict[int, str]:
+    def get_latest_peer_uris(self, latest_doc: Dict = None) -> Dict[int, str]:
         """
         Get the latest peer URIs from MongoDB.
+        
+        Args:
+            latest_doc: Optional pre-fetched document to avoid duplicate queries
         
         Returns:
             Dictionary mapping peer_id to URI string
@@ -74,7 +81,8 @@ class MongoService:
         Raises:
             ValueError: If no peer data found in MongoDB
         """
-        latest_doc = self.get_latest_peers()
+        if latest_doc is None:
+            latest_doc = self.get_latest_peers()
         if latest_doc is None or "peers" not in latest_doc:
             raise ValueError("No peer data found in MongoDB")
         

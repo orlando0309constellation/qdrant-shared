@@ -27,6 +27,7 @@ class MongoManager:
             raise ValueError("Database not initialized")
         return cls.db
 
+    @classmethod
     def get_collection(cls, name: str):
         if cls.db is None:
             raise ValueError("Database not initialized")

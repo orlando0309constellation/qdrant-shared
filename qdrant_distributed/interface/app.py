@@ -381,8 +381,10 @@ class QdrantManagerApp:
             self.ensure_mongo_initialized()
             if self.mongo_service is None:
                 raise ValueError("MongoDB service not initialized. Please check MongoDB connection settings.")
-            peer_shards = self.mongo_service.get_latest_peers_as_dict()
-            peer_uris = self.mongo_service.get_latest_peer_uris()
+            # Fetch once and reuse to avoid duplicate queries
+            latest_doc = self.mongo_service.get_latest_peers()
+            peer_shards = self.mongo_service.get_latest_peers_as_dict(latest_doc)
+            peer_uris = self.mongo_service.get_latest_peer_uris(latest_doc)
             self.display_shard_list(peer_shards, peer_uris)
         else:
             peer_shards = self.cluster_ops.list_all_shards(collection_name=collection, timeout=timeout)

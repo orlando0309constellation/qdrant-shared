@@ -34,7 +34,15 @@ class QdrantHttpClient:
         )
         
         protocol = "https" if qdrant_https else "http"
-        self.base_url = f"{qdrant_url}:{qdrant_port}"
+        self.base_url = f"{protocol}://{qdrant_url}:{qdrant_port}"
+        
+        # Create a session for connection pooling
+        self.session = requests.Session()
+        # Set default headers (need to get headers after api_key is set)
+        default_headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            default_headers["api-key"] = self.api_key
+        self.session.headers.update(default_headers)
     
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers with authentication."""
@@ -42,6 +50,19 @@ class QdrantHttpClient:
         if self.api_key:
             headers["api-key"] = self.api_key
         return headers
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - close session."""
+        self.close()
+    
+    def close(self):
+        """Close the HTTP session."""
+        if hasattr(self, 'session') and self.session:
+            self.session.close()
     
     def get(
         self,
@@ -69,9 +90,9 @@ class QdrantHttpClient:
             params["timeout"] = timeout
         
         try:
-            response = requests.get(
+            # Use session for connection pooling
+            response = self.session.get(
                 url,
-                headers=self._get_headers(),
                 params=params
             )
             response.raise_for_status()
@@ -123,10 +144,10 @@ class QdrantHttpClient:
             params["timeout"] = timeout
         
         try:
-            response = requests.post(
+            # Use session for connection pooling
+            response = self.session.post(
                 url,
                 json=payload,
-                headers=self._get_headers(),
                 params=params
             )
             response.raise_for_status()

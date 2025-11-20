@@ -196,8 +196,10 @@ def main() -> int:
                 print(f"[*] Retrieving peer information from MongoDB (latest)")
                 print()
                 
-                peer_shards = mongo_service.get_latest_peers_as_dict()
-                peer_uris = mongo_service.get_latest_peer_uris()
+                # Fetch once and reuse to avoid duplicate queries
+                latest_doc = mongo_service.get_latest_peers()
+                peer_shards = mongo_service.get_latest_peers_as_dict(latest_doc)
+                peer_uris = mongo_service.get_latest_peer_uris(latest_doc)
                 formatter.print_shard_list(peer_shards, peer_uris)
             else:
                 print(f"[*] Listing all local shards from each peer in the cluster")
@@ -208,7 +210,7 @@ def main() -> int:
                     timeout=args.timeout
                 )
                 
-                # Get peer URIs for display
+                # Get peer URIs for display (cache for later use if saving)
                 from qdrant_distributed.client import ClusterClient
                 cluster_client = ClusterClient()
                 peers_dict, _ = cluster_client.get_peers(args.timeout)
@@ -216,13 +218,9 @@ def main() -> int:
                 
                 formatter.print_shard_list(peer_shards, peer_uris)
                 
-                # Save to MongoDB if requested
+                # Save to MongoDB if requested (reuse cached peers_dict)
                 if args.save:
                     print(f"\n[*] Saving peer information to MongoDB...")
-                    # Get peers info to retrieve URIs
-                    from qdrant_distributed.client import ClusterClient
-                    cluster_client = ClusterClient()
-                    peers_dict, _ = cluster_client.get_peers(args.timeout)
                     peer_info_list = convert_peer_shards_to_peer_info(peer_shards, peers_dict)
                     mongo_service.save_peers(peer_info_list)
                     print(f"[+] Peer information saved to MongoDB")
