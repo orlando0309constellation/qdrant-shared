@@ -1,0 +1,3 @@
+[console_scripts]
+qdrant-manager-gui = qdrant_distributed.interface.launcher:main
+qdrant-shard = main:main
