@@ -1,3 +1,4 @@
 [console_scripts]
+qdrant-scheduler = qdrant_distributed.scripts.scheduler:main
 qdrant-shard = main:main
 qdrant-shard-gui = qdrant_distributed.interface.launcher:main

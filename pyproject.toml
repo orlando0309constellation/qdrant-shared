@@ -16,9 +16,10 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["qdrant_distributed", "qdrant_distributed.cli", "qdrant_distributed.client", "qdrant_distributed.models", "qdrant_distributed.operations", "qdrant_distributed.services", "qdrant_distributed.interface"]
+packages = ["qdrant_distributed", "qdrant_distributed.cli", "qdrant_distributed.client", "qdrant_distributed.models", "qdrant_distributed.operations", "qdrant_distributed.services", "qdrant_distributed.interface", "qdrant_distributed.scripts"]
 py-modules = ["main"]
 
 [project.scripts]
 qdrant-shard = "main:main"
 qdrant-shard-gui = "qdrant_distributed.interface.launcher:main"
+qdrant-scheduler = "qdrant_distributed.scripts.scheduler:main"

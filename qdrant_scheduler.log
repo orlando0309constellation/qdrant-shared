@@ -1,0 +1,13 @@
+2025-11-20 12:38:32,756 - INFO - Starting scheduler: interval=1 minutes, collection=None, timeout=120s
+2025-11-20 12:38:32,757 - INFO - Log file: qdrant_scheduler.log
+2025-11-20 12:38:32,757 - INFO - Run #1 at 2025-11-20 12:38:32
+2025-11-20 12:38:32,757 - INFO - Running command: qdrant-shard -ls --save --timeout 120
+2025-11-20 12:38:40,826 - INFO - Successfully saved peer information to MongoDB
+2025-11-20 12:38:40,826 - INFO - Run #1 completed successfully
+2025-11-20 12:38:40,827 - INFO - Waiting 1 minutes until next run...
+2025-11-20 12:39:40,828 - INFO - Run #2 at 2025-11-20 12:39:40
+2025-11-20 12:39:40,828 - INFO - Running command: qdrant-shard -ls --save --timeout 120
+2025-11-20 12:39:48,239 - INFO - Successfully saved peer information to MongoDB
+2025-11-20 12:39:48,250 - INFO - Run #2 completed successfully
+2025-11-20 12:39:48,250 - INFO - Waiting 1 minutes until next run...
+2025-11-20 12:39:52,468 - INFO - Scheduler stopped by user
