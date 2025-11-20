@@ -6,17 +6,47 @@ Centralizes environment variable reading to avoid duplication.
 import os
 from typing import Optional
 from dotenv import load_dotenv
-from pymongo import MongoClient
+
 # Load environment variables once at module level
 load_dotenv()
+
+# MongoDB Configuration
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
+
+# MySQL Configuration
+MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER = os.getenv("MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "qdrant_manager")
+
 class MongoManager:
+    """MongoDB connection manager with lazy import."""
+    client = None
+    db = None
+    
     @classmethod
     def initialize(cls, url: str = MONGO_URL):
-        client= MongoClient(url)
-        if client:
-            cls.client = client
+        """
+        Initialize MongoDB connection.
+        
+        Args:
+            url: MongoDB connection URL
+        
+        Raises:
+            ImportError: If pymongo is not installed
+        """
+        try:
+            from pymongo import MongoClient
+        except ImportError:
+            raise ImportError(
+                "pymongo is not installed. Install it with: pip install pymongo>=4.15.4\n"
+                "Or if using uv: uv pip install pymongo>=4.15.4"
+            )
+        
+        cls.client = MongoClient(url)
+        if cls.client:
             cls.db = cls.client.get_database(MONGO_DATABASE)
         else:
             raise ValueError("Failed to connect to MongoDB")
@@ -32,6 +62,149 @@ class MongoManager:
         if cls.db is None:
             raise ValueError("Database not initialized")
         return cls.db.get_collection(name)
+
+class MySQLManager:
+    """MySQL connection manager with lazy import."""
+    connection = None
+    db = None
+    
+    @classmethod
+    def initialize(cls, host: str = None, port: int = None, user: str = None, 
+                   password: str = None, database: str = None):
+        """
+        Initialize MySQL connection.
+        
+        Args:
+            host: MySQL host (defaults to MYSQL_HOST env var)
+            port: MySQL port (defaults to MYSQL_PORT env var)
+            user: MySQL user (defaults to MYSQL_USER env var)
+            password: MySQL password (defaults to MYSQL_PASSWORD env var)
+            database: MySQL database name (defaults to MYSQL_DATABASE env var)
+        
+        Raises:
+            ImportError: If mysql-connector-python is not installed
+        """
+        try:
+            import mysql.connector
+            from mysql.connector import Error
+        except ImportError:
+            raise ImportError(
+                "mysql-connector-python is not installed. Install it with: pip install mysql-connector-python>=8.2.0\n"
+                "Or if using uv: uv pip install mysql-connector-python>=8.2.0"
+            )
+        
+        try:
+            cls.connection = mysql.connector.connect(
+                host=host or MYSQL_HOST,
+                port=port or MYSQL_PORT,
+                user=user or MYSQL_USER,
+                password=password or MYSQL_PASSWORD,
+                database=database or MYSQL_DATABASE,
+                autocommit=False
+            )
+            cls.db = cls.connection
+            
+            # Create tables if they don't exist
+            cls._create_tables()
+        except Error as e:
+            raise ValueError(f"Failed to connect to MySQL: {e}")
+    
+    @classmethod
+    def _create_tables(cls):
+        """Create required tables if they don't exist and migrate peer_id to BIGINT if needed."""
+        cursor = cls.connection.cursor()
+        
+        # Create peers table with snapshot tracking
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS peers (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                snapshot_id BIGINT NOT NULL,
+                peer_id BIGINT NOT NULL,
+                uri VARCHAR(500),
+                created_at DATETIME NOT NULL,
+                INDEX idx_snapshot_id (snapshot_id),
+                INDEX idx_peer_id (peer_id),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+        
+        # Create shards table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS shards (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                snapshot_id BIGINT NOT NULL,
+                peer_id BIGINT NOT NULL,
+                shard_id INT NOT NULL,
+                points_count BIGINT NOT NULL,
+                state VARCHAR(50) NOT NULL,
+                created_at DATETIME NOT NULL,
+                INDEX idx_snapshot_id (snapshot_id),
+                INDEX idx_peer_id (peer_id),
+                INDEX idx_shard_id (shard_id),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+        
+        cls.connection.commit()
+        
+        # Migrate existing tables: Change peer_id from INT to BIGINT if it exists as INT
+        try:
+            # Check if peers.peer_id is INT and needs migration
+            cursor.execute("""
+                SELECT DATA_TYPE 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'peers' 
+                AND COLUMN_NAME = 'peer_id'
+            """)
+            result = cursor.fetchone()
+            
+            if result and result[0] in ('int', 'INT'):
+                cursor.execute("ALTER TABLE peers MODIFY COLUMN peer_id BIGINT NOT NULL")
+                print("[*] Migrated peers.peer_id from INT to BIGINT")
+            
+            # Check if shards.peer_id is INT and needs migration
+            cursor.execute("""
+                SELECT DATA_TYPE 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'shards' 
+                AND COLUMN_NAME = 'peer_id'
+            """)
+            result = cursor.fetchone()
+            
+            if result and result[0] in ('int', 'INT'):
+                cursor.execute("ALTER TABLE shards MODIFY COLUMN peer_id BIGINT NOT NULL")
+                print("[*] Migrated shards.peer_id from INT to BIGINT")
+            
+            cls.connection.commit()
+        except Exception as e:
+            # Migration failed, but don't break initialization
+            print(f"[!] Warning: Could not migrate peer_id columns: {e}")
+            cls.connection.rollback()
+        
+        cursor.close()
+    
+    @classmethod
+    def get_db(cls):
+        if cls.db is None:
+            raise ValueError("Database not initialized")
+        return cls.db
+    
+    @classmethod
+    def get_connection(cls):
+        """Get MySQL connection."""
+        if cls.connection is None:
+            raise ValueError("Database not initialized")
+        return cls.connection
+    
+    @classmethod
+    def close(cls):
+        """Close MySQL connection."""
+        if cls.connection and cls.connection.is_connected():
+            cls.connection.close()
+            cls.connection = None
+            cls.db = None
 
 def get_qdrant_url(default: str = "localhost") -> str:
     """Get QDRANT_URL from environment with default."""

@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: Qdrant Cluster Manager - CLI and Desktop GUI for managing Qdrant distributed clusters
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
+Requires-Dist: mysql-connector-python>=8.2.0
 Requires-Dist: pymongo>=4.15.4
 Requires-Dist: python-dotenv>=1.2.1
 Requires-Dist: qdrant-client>=1.16.0
@@ -37,9 +38,12 @@ QDRANT_PORT=6333
 QDRANT_API_KEY=your_api_key_here
 QDRANT_HTTPS=false
 
-# MongoDB Configuration (optional, for --save, -ml, --latest features)
-MONGO_URL=mongodb://localhost:27017
-MONGO_DATABASE=qdrant_manager
+# MySQL Configuration (optional, for --save, -ml, --latest features)
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=your_password
+MYSQL_DATABASE=qdrant_manager
 ```
 
 ## Usage
@@ -72,12 +76,12 @@ qdrant-shard -ls
 qdrant-shard -ls -c my_collection
 ```
 
-**Load from MongoDB (display last saved state):**
+**Load from MySQL (display last saved state):**
 ```bash
 qdrant-shard -ls -ml
 ```
 
-**List and save to MongoDB:**
+**List and save to MySQL:**
 ```bash
 qdrant-shard -ls --save
 ```
@@ -106,12 +110,12 @@ qdrant-shard -mv -fp 1 -tp 2 -c my_collection
 qdrant-shard -mv -fp 1 -tp 2 --method snapshot
 ```
 
-**Use latest data from MongoDB (skip querying peers):**
+**Use latest data from MySQL (skip querying peers):**
 ```bash
 qdrant-shard -mv -fp 1 -tp 2 --latest
 ```
 
-**Move and save result to MongoDB:**
+**Move and save result to MySQL:**
 ```bash
 qdrant-shard -mv -fp 1 -tp 2 --save
 ```
@@ -145,7 +149,7 @@ qdrant-shard -rs -fp 1 -tp 2 --method stream_records
 qdrant-shard -rs -fp 1 -tp 2 --latest
 ```
 
-**Replicate and save result to MongoDB:**
+**Replicate and save result to MySQL:**
 ```bash
 qdrant-shard -rs -fp 1 -tp 2 --save
 ```
@@ -196,13 +200,13 @@ qdrant-shard -abort --shard-id 0 -fp 1 -tp 2 --timeout 60
 | `--method` | - | `stream_records` | Transfer method (see below) |
 | `--timeout` | - | `120` | Operation timeout in seconds |
 
-### MongoDB Flags
+### MySQL Flags
 
 | Flag | Long Form | Compatible With | Description |
 |------|-----------|-----------------|-------------|
-| `--save` | - | All operations | Save peer information to MongoDB after operation |
-| `-ml` | `--last-mongo` | `-ls` only | Load and display peer information from MongoDB |
-| `--latest` | - | `-mv`, `-rs` only | Use latest peer data from MongoDB instead of querying |
+| `--save` | - | All operations | Save peer information to MySQL after operation |
+| `-ml` | `--last-mongo` | `-ls` only | Load and display peer information from MySQL |
+| `--latest` | - | `-mv`, `-rs` only | Use latest peer data from MySQL instead of querying |
 
 ## Transfer Methods
 
@@ -213,9 +217,9 @@ Available transfer methods for move and replicate operations:
 - `wal_delta` - Uses Write-Ahead Log delta for transfer
 - `resharding_stream_records` - Optimized for resharding operations
 
-## MongoDB Integration
+## MySQL Integration
 
-The tool can save and retrieve peer information from MongoDB for faster operations and historical tracking.
+The tool can save and retrieve peer information from MySQL for faster operations and historical tracking.
 
 ### Saving Peer Information
 
@@ -232,7 +236,7 @@ qdrant-shard -mv -fp 1 -tp 2 --save
 qdrant-shard -rs -fp 1 -tp 2 --save
 ```
 
-### Loading from MongoDB
+### Loading from MySQL
 
 Display the last saved peer state:
 
@@ -242,13 +246,13 @@ qdrant-shard -ls -ml
 
 ### Using Latest Data
 
-Use the latest MongoDB data instead of querying peers (faster for large clusters):
+Use the latest MySQL data instead of querying peers (faster for large clusters):
 
 ```bash
-# Move using latest MongoDB data
+# Move using latest MySQL data
 qdrant-shard -mv -fp 1 -tp 2 --latest
 
-# Replicate using latest MongoDB data
+# Replicate using latest MySQL data
 qdrant-shard -rs -fp 1 -tp 2 --latest
 ```
 
@@ -270,10 +274,10 @@ qdrant-shard -ls -c my_vectors
 # Move all shards from peer 1 to peer 2
 qdrant-shard -mv -fp 1 -tp 2
 
-# Move with snapshot method and save to MongoDB
+# Move with snapshot method and save to MySQL
 qdrant-shard -mv -fp 1 -tp 2 --method snapshot --save
 
-# Move using latest MongoDB data (faster)
+# Move using latest MySQL data (faster)
 qdrant-shard -mv -fp 1 -tp 2 --latest
 ```
 
@@ -294,7 +298,7 @@ qdrant-shard -rs -fp 1 -tp 2 --timeout 300
 qdrant-shard -abort --shard-id 0 -fp 1 -tp 2
 ```
 
-### Example 5: MongoDB Workflow
+### Example 5: MySQL Workflow
 
 ```bash
 # Step 1: List and save current state
@@ -329,7 +333,7 @@ Example list output:
 📊 Summary:
    Total Peers: 3
    Total Local Shards: 24
-   Total Points: 129,585
+   Total Local points: 129,585
 ```
 
 ## Error Handling
@@ -339,7 +343,7 @@ The tool validates inputs and provides clear error messages:
 - Missing required parameters
 - Invalid peer IDs or shard IDs
 - Invalid flag combinations (e.g., `-ml` with `-mv`)
-- Connection errors to Qdrant or MongoDB
+- Connection errors to Qdrant or MySQL
 - Operation timeouts
 
 ## Troubleshooting
@@ -353,12 +357,15 @@ QDRANT_PORT=6333
 QDRANT_API_KEY=your_key
 ```
 
-### MongoDB Issues
+### MySQL Issues
 
-If using MongoDB features, ensure MongoDB is running and configured:
+If using MySQL features, ensure MySQL is running and configured:
 ```env
-MONGO_URL=mongodb://localhost:27017
-MONGO_DATABASE=qdrant_manager
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=your_password
+MYSQL_DATABASE=qdrant_manager
 ```
 
 ### Timeout Issues
@@ -373,3 +380,4 @@ qdrant-shard -ls --timeout 300
 - [Qdrant Distributed Documentation](https://api.qdrant.tech/master/api-reference/distributed/update-collection-cluster)
 - [Qdrant Client Documentation](https://qdrant.tech/documentation/)
 
+<!-- cd D:\projet\Official\qdrant-manager; uv pip install -e . -->

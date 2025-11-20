@@ -20,8 +20,8 @@ from qdrant_distributed.client.qdrant_client import QdrantClientManager
 from qdrant_distributed import ShardOperations, ClusterOperations
 from qdrant_distributed.models import ShardTransferMethod, PeerInfo
 from qdrant_distributed.exceptions import QdrantShardingError, ValidationError
-from qdrant_distributed.config import MongoManager
-from qdrant_distributed.services.mongo_service import MongoService
+from qdrant_distributed.config import MySQLManager
+from qdrant_distributed.services.mysql_service import MySQLService
 from qdrant_distributed.models.shard import ShardInfo
 
 
@@ -52,7 +52,7 @@ class QdrantManagerApp:
         # Services
         self.shard_ops: Optional[ShardOperations] = None
         self.cluster_ops: Optional[ClusterOperations] = None
-        self.mongo_service: Optional[MongoService] = None
+        self.mysql_service: Optional[MySQLService] = None
         self.is_initialized = False
         
         # Store current shard data for export
@@ -137,17 +137,17 @@ class QdrantManagerApp:
         options_frame = ttk.LabelFrame(left_panel, text="Options", padding="12")
         options_frame.pack(fill=tk.X, pady=(0, 12))
         
-        self.save_check = ttk.Checkbutton(options_frame, text="Save to MongoDB (--save)", 
+        self.save_check = ttk.Checkbutton(options_frame, text="Save to MySQL (--save)", 
                                          variable=self.save_var)
         self.save_check.pack(anchor=tk.W, pady=3)
                        
-        self.latest_check = ttk.Checkbutton(options_frame, text="Use latest from MongoDB (--latest)", 
+        self.latest_check = ttk.Checkbutton(options_frame, text="Use latest from MySQL (--latest)", 
                                            variable=self.latest_var)
         self.latest_check.pack(anchor=tk.W, pady=3)
         
-        self.last_mongo_check = ttk.Checkbutton(options_frame, text="Load from MongoDB (-ml)", 
+        self.last_mysql_check = ttk.Checkbutton(options_frame, text="Load from MySQL (-ml)", 
                                                variable=self.last_mongo_var)
-        self.last_mongo_check.pack(anchor=tk.W, pady=3)
+        self.last_mysql_check.pack(anchor=tk.W, pady=3)
         
         # 5. Execute Button
         self.execute_button = ttk.Button(left_panel, text="▶ Execute Operation", 
@@ -310,7 +310,7 @@ class QdrantManagerApp:
             
         # Reset option states
         self.latest_check.config(state=tk.NORMAL)
-        self.last_mongo_check.config(state=tk.NORMAL)
+        self.last_mysql_check.config(state=tk.NORMAL)
         
         if operation == "list":
             # No extra parameters needed
@@ -319,13 +319,13 @@ class QdrantManagerApp:
         elif operation in ["move", "replicate"]:
             self.peer_frame.pack(fill=tk.X, pady=5)
             self.method_frame.pack(fill=tk.X, pady=5)
-            self.last_mongo_check.config(state=tk.DISABLED)
+            self.last_mysql_check.config(state=tk.DISABLED)
             
         elif operation == "abort":
             self.peer_frame.pack(fill=tk.X, pady=5)
             self.shard_frame.pack(fill=tk.X, pady=5)
             self.latest_check.config(state=tk.DISABLED)
-            self.last_mongo_check.config(state=tk.DISABLED)
+            self.last_mysql_check.config(state=tk.DISABLED)
 
     def log_output(self, text: str, tag: str = None):
         """Add text to output area with optional formatting."""
@@ -413,7 +413,7 @@ class QdrantManagerApp:
         
         if self.last_mongo_var.get() and operation != "list":
             messagebox.showerror("Validation Error", 
-                               "-ml (Load from MongoDB) can only be used with List operation")
+                               "-ml (Load from MySQL) can only be used with List operation")
             return False
         
         if self.latest_var.get() and operation not in ["move", "replicate"]:
@@ -429,17 +429,17 @@ class QdrantManagerApp:
         
         return True
     
-    def ensure_mongo_initialized(self):
-        """Ensure MongoDB is initialized if needed."""
-        if self.mongo_service is None:
+    def ensure_mysql_initialized(self):
+        """Ensure MySQL is initialized if needed."""
+        if self.mysql_service is None:
             if self.save_var.get() or self.last_mongo_var.get() or self.latest_var.get():
-                self.log_output("🔌 Initializing MongoDB connection...", "info")
-                MongoManager.initialize()
-                self.mongo_service = MongoService()
-                self.log_output("✅ MongoDB connection initialized", "success")
+                self.log_output("🔌 Initializing MySQL connection...", "info")
+                MySQLManager.initialize()
+                self.mysql_service = MySQLService()
+                self.log_output("✅ MySQL connection initialized", "success")
     
     def initialize_services(self):
-        """Initialize Qdrant and MongoDB services."""
+        """Initialize Qdrant and MySQL services."""
         if not self.is_initialized:
             self.log_output("🔌 Initializing Qdrant client...", "info")
             QdrantClientManager.initialize()
@@ -451,8 +451,8 @@ class QdrantManagerApp:
             
             self.is_initialized = True
         
-        # Always check if MongoDB is needed (in case flags changed)
-        self.ensure_mongo_initialized()
+        # Always check if MySQL is needed (in case flags changed)
+        self.ensure_mysql_initialized()
     
     def convert_peer_shards_to_peer_info(self, peer_shards: Dict[int, List[ShardInfo]], 
                                         peers_dict: Dict[str, any]) -> List[PeerInfo]:
@@ -520,14 +520,14 @@ class QdrantManagerApp:
         self.update_progress(30)
         
         if self.last_mongo_var.get():
-            self.ensure_mongo_initialized()
-            if self.mongo_service is None:
-                raise ValueError("MongoDB service not initialized. Please check MongoDB connection settings.")
+            self.ensure_mysql_initialized()
+            if self.mysql_service is None:
+                raise ValueError("MySQL service not initialized. Please check MySQL connection settings.")
             self.update_progress(50)
             # Fetch once and reuse to avoid duplicate queries
-            latest_doc = self.mongo_service.get_latest_peers()
-            peer_shards = self.mongo_service.get_latest_peers_as_dict(latest_doc)
-            peer_uris = self.mongo_service.get_latest_peer_uris(latest_doc)
+            latest_doc = self.mysql_service.get_latest_peers()
+            peer_shards = self.mysql_service.get_latest_peers_as_dict(latest_doc)
+            peer_uris = self.mysql_service.get_latest_peer_uris(latest_doc)
             self.update_progress(80)
             self.display_shard_list(peer_shards, peer_uris)
         else:
@@ -544,15 +544,15 @@ class QdrantManagerApp:
             
             self.display_shard_list(peer_shards, peer_uris)
             
-            # Save to MongoDB if requested
+            # Save to MySQL if requested
             if self.save_var.get():
-                self.ensure_mongo_initialized()
-                if self.mongo_service is None:
-                    raise ValueError("MongoDB service not initialized. Please check MongoDB connection settings.")
-                self.log_output("\n💾 Saving peer information to MongoDB...", "info")
+                self.ensure_mysql_initialized()
+                if self.mysql_service is None:
+                    raise ValueError("MySQL service not initialized. Please check MySQL connection settings.")
+                self.log_output("\n💾 Saving peer information to MySQL...", "info")
                 peer_info_list = self.convert_peer_shards_to_peer_info(peer_shards, peers_dict)
-                self.mongo_service.save_peers(peer_info_list)
-                self.log_output("✓ Peer information saved to MongoDB", "success")
+                self.mysql_service.save_peers(peer_info_list)
+                self.log_output("✓ Peer information saved to MySQL", "success")
     
     def execute_move_operation(self, collection: str, timeout: int):
         """Execute move shards operation."""
@@ -566,12 +566,12 @@ class QdrantManagerApp:
         
         # Get shard information
         if self.latest_var.get():
-            self.ensure_mongo_initialized()
-            if self.mongo_service is None:
-                raise ValueError("MongoDB service not initialized. Please check MongoDB connection settings.")
-            self.log_output("📋 Getting shard information from MongoDB (latest)...", "info")
-            all_peer_shards = self.mongo_service.get_latest_peers_as_dict()
-            self.log_output("✓ Retrieved peer information from MongoDB\n", "success")
+            self.ensure_mysql_initialized()
+            if self.mysql_service is None:
+                raise ValueError("MySQL service not initialized. Please check MySQL connection settings.")
+            self.log_output("📋 Getting shard information from MySQL (latest)...", "info")
+            all_peer_shards = self.mysql_service.get_latest_peers_as_dict()
+            self.log_output("✓ Retrieved peer information from MySQL\n", "success")
             self.update_progress(50)
         else:
             self.log_output("📋 Getting shard information from peers...", "info")
@@ -603,12 +603,12 @@ class QdrantManagerApp:
         
         # Get shard information
         if self.latest_var.get():
-            self.ensure_mongo_initialized()
-            if self.mongo_service is None:
-                raise ValueError("MongoDB service not initialized. Please check MongoDB connection settings.")
-            self.log_output("📋 Getting shard information from MongoDB (latest)...", "info")
-            all_peer_shards = self.mongo_service.get_latest_peers_as_dict()
-            self.log_output("✓ Retrieved peer information from MongoDB\n", "success")
+            self.ensure_mysql_initialized()
+            if self.mysql_service is None:
+                raise ValueError("MySQL service not initialized. Please check MySQL connection settings.")
+            self.log_output("📋 Getting shard information from MySQL (latest)...", "info")
+            all_peer_shards = self.mysql_service.get_latest_peers_as_dict()
+            self.log_output("✓ Retrieved peer information from MySQL\n", "success")
             self.update_progress(50)
         else:
             self.log_output("📋 Getting shard information from peers...", "info")
