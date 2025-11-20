@@ -1,0 +1,364 @@
+# Qdrant Cluster Manager CLI
+
+A command-line tool for managing Qdrant distributed cluster operations including shard transfers, replication, and cluster monitoring.
+
+## Installation
+
+### From Source
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd qdrant-manager
+
+# Install in development mode
+uv sync
+```
+
+## Configuration
+
+The tool uses environment variables for configuration. Create a `.env` file in your project root:
+
+```env
+# Qdrant Configuration
+QDRANT_URL=localhost
+QDRANT_PORT=6333
+QDRANT_API_KEY=your_api_key_here
+QDRANT_HTTPS=false
+
+# MongoDB Configuration (optional, for --save, -ml, --latest features)
+MONGO_URL=mongodb://localhost:27017
+MONGO_DATABASE=qdrant_manager
+```
+
+## Usage
+
+After installation, you can use the `qdrant-shard` command:
+
+```bash
+qdrant-shard [OPERATION] [OPTIONS] [FLAGS]
+```
+
+Or run directly with Python:
+
+```bash
+python main.py [OPERATION] [OPTIONS] [FLAGS]
+```
+
+## Operations
+
+### 1. List Shards (`-ls` or `--list-shards`)
+
+Display all local shards from each peer in the cluster.
+
+**Basic usage:**
+```bash
+qdrant-shard -ls
+```
+
+**With custom collection:**
+```bash
+qdrant-shard -ls -c my_collection
+```
+
+**Load from MongoDB (display last saved state):**
+```bash
+qdrant-shard -ls -ml
+```
+
+**List and save to MongoDB:**
+```bash
+qdrant-shard -ls --save
+```
+
+**With custom timeout:**
+```bash
+qdrant-shard -ls --timeout 60
+```
+
+### 2. Move Shards (`-mv` or `--move-shard`)
+
+Move all shards from one peer to another. Only moves shards that are not already in the destination peer.
+
+**Basic usage:**
+```bash
+qdrant-shard -mv -fp 1 -tp 2
+```
+
+**With custom collection:**
+```bash
+qdrant-shard -mv -fp 1 -tp 2 -c my_collection
+```
+
+**With specific transfer method:**
+```bash
+qdrant-shard -mv -fp 1 -tp 2 --method snapshot
+```
+
+**Use latest data from MongoDB (skip querying peers):**
+```bash
+qdrant-shard -mv -fp 1 -tp 2 --latest
+```
+
+**Move and save result to MongoDB:**
+```bash
+qdrant-shard -mv -fp 1 -tp 2 --save
+```
+
+**With custom timeout:**
+```bash
+qdrant-shard -mv -fp 1 -tp 2 --timeout 300
+```
+
+### 3. Replicate Shards (`-rs` or `--replicate-shard`)
+
+Replicate all shards from one peer to another. Only replicates shards that are not already in the destination peer.
+
+**Basic usage:**
+```bash
+qdrant-shard -rs -fp 1 -tp 2
+```
+
+**With custom collection:**
+```bash
+qdrant-shard -rs -fp 1 -tp 2 -c my_collection
+```
+
+**With specific transfer method:**
+```bash
+qdrant-shard -rs -fp 1 -tp 2 --method stream_records
+```
+
+**Use latest data from MongoDB:**
+```bash
+qdrant-shard -rs -fp 1 -tp 2 --latest
+```
+
+**Replicate and save result to MongoDB:**
+```bash
+qdrant-shard -rs -fp 1 -tp 2 --save
+```
+
+### 4. Abort Transfer (`-abort` or `--abort-transfer`)
+
+Abort an ongoing shard transfer operation.
+
+**Basic usage:**
+```bash
+qdrant-shard -abort --shard-id 0 -fp 1 -tp 2
+```
+
+**With custom collection:**
+```bash
+qdrant-shard -abort --shard-id 0 -fp 1 -tp 2 -c my_collection
+```
+
+**With custom timeout:**
+```bash
+qdrant-shard -abort --shard-id 0 -fp 1 -tp 2 --timeout 60
+```
+
+## Command Options
+
+### Operation Flags (Required - choose one)
+
+| Flag | Long Form | Description |
+|------|-----------|-------------|
+| `-ls` | `--list-shards` | List all local shards from each peer |
+| `-mv` | `--move-shard` | Move all shards from one peer to another |
+| `-rs` | `--replicate-shard` | Replicate all shards from one peer to another |
+| `-abort` | `--abort-transfer` | Abort an ongoing shard transfer |
+
+### Required Parameters
+
+| Flag | Long Form | Required For | Description |
+|------|-----------|--------------|-------------|
+| `-fp` | `--from-peer` | `-mv`, `-rs`, `-abort` | Source peer ID |
+| `-tp` | `--to-peer` | `-mv`, `-rs`, `-abort` | Destination peer ID |
+| `--shard-id` | - | `-abort` | ID of the shard to abort |
+
+### Optional Parameters
+
+| Flag | Long Form | Default | Description |
+|------|-----------|---------|-------------|
+| `-c` | `--collection` | `shared_vectors_hybrid` | Collection name |
+| `--method` | - | `stream_records` | Transfer method (see below) |
+| `--timeout` | - | `120` | Operation timeout in seconds |
+
+### MongoDB Flags
+
+| Flag | Long Form | Compatible With | Description |
+|------|-----------|-----------------|-------------|
+| `--save` | - | All operations | Save peer information to MongoDB after operation |
+| `-ml` | `--last-mongo` | `-ls` only | Load and display peer information from MongoDB |
+| `--latest` | - | `-mv`, `-rs` only | Use latest peer data from MongoDB instead of querying |
+
+## Transfer Methods
+
+Available transfer methods for move and replicate operations:
+
+- `stream_records` (default) - Best for most cases, streams records incrementally
+- `snapshot` - Creates a snapshot and transfers it
+- `wal_delta` - Uses Write-Ahead Log delta for transfer
+- `resharding_stream_records` - Optimized for resharding operations
+
+## MongoDB Integration
+
+The tool can save and retrieve peer information from MongoDB for faster operations and historical tracking.
+
+### Saving Peer Information
+
+Save peer information after any operation:
+
+```bash
+# Save after listing
+qdrant-shard -ls --save
+
+# Save after moving shards
+qdrant-shard -mv -fp 1 -tp 2 --save
+
+# Save after replicating
+qdrant-shard -rs -fp 1 -tp 2 --save
+```
+
+### Loading from MongoDB
+
+Display the last saved peer state:
+
+```bash
+qdrant-shard -ls -ml
+```
+
+### Using Latest Data
+
+Use the latest MongoDB data instead of querying peers (faster for large clusters):
+
+```bash
+# Move using latest MongoDB data
+qdrant-shard -mv -fp 1 -tp 2 --latest
+
+# Replicate using latest MongoDB data
+qdrant-shard -rs -fp 1 -tp 2 --latest
+```
+
+## Examples
+
+### Example 1: Basic Cluster Inspection
+
+```bash
+# List all shards in the default collection
+qdrant-shard -ls
+
+# List shards in a specific collection
+qdrant-shard -ls -c my_vectors
+```
+
+### Example 2: Moving Shards Between Peers
+
+```bash
+# Move all shards from peer 1 to peer 2
+qdrant-shard -mv -fp 1 -tp 2
+
+# Move with snapshot method and save to MongoDB
+qdrant-shard -mv -fp 1 -tp 2 --method snapshot --save
+
+# Move using latest MongoDB data (faster)
+qdrant-shard -mv -fp 1 -tp 2 --latest
+```
+
+### Example 3: Replicating Shards
+
+```bash
+# Replicate all shards from peer 1 to peer 2
+qdrant-shard -rs -fp 1 -tp 2
+
+# Replicate with custom timeout
+qdrant-shard -rs -fp 1 -tp 2 --timeout 300
+```
+
+### Example 4: Aborting a Transfer
+
+```bash
+# Abort transfer of shard 0 from peer 1 to peer 2
+qdrant-shard -abort --shard-id 0 -fp 1 -tp 2
+```
+
+### Example 5: MongoDB Workflow
+
+```bash
+# Step 1: List and save current state
+qdrant-shard -ls --save
+
+# Step 2: Later, view saved state
+qdrant-shard -ls -ml
+
+# Step 3: Perform operation using saved data (faster)
+qdrant-shard -mv -fp 1 -tp 2 --latest --save
+```
+
+## Output Format
+
+The tool provides detailed output including:
+
+- **List Operation**: Shows all peers with their shards, points count, and shard states
+- **Move/Replicate Operations**: Shows progress and completion status
+- **Abort Operation**: Shows abort result and timing information
+
+Example list output:
+```
+📍 Peer 2415265291587445(qdrant-node:6333):
+   ======================================================================
+   ├─ Shard 0
+   │  ├─ Points: 10,000
+   │  └─ State: Active
+   ├─ Shard 1
+   │  ├─ Points: 8,500
+   │  └─ State: Active
+
+📊 Summary:
+   Total Peers: 3
+   Total Local Shards: 24
+   Total Points: 129,585
+```
+
+## Error Handling
+
+The tool validates inputs and provides clear error messages:
+
+- Missing required parameters
+- Invalid peer IDs or shard IDs
+- Invalid flag combinations (e.g., `-ml` with `-mv`)
+- Connection errors to Qdrant or MongoDB
+- Operation timeouts
+
+## Troubleshooting
+
+### Connection Issues
+
+Ensure your `.env` file has correct Qdrant connection settings:
+```env
+QDRANT_URL=localhost
+QDRANT_PORT=6333
+QDRANT_API_KEY=your_key
+```
+
+### MongoDB Issues
+
+If using MongoDB features, ensure MongoDB is running and configured:
+```env
+MONGO_URL=mongodb://localhost:27017
+MONGO_DATABASE=qdrant_manager
+```
+
+### Timeout Issues
+
+For large clusters or slow networks, increase the timeout:
+```bash
+qdrant-shard -ls --timeout 300
+```
+
+## Additional Resources
+
+- [Qdrant Distributed Documentation](https://api.qdrant.tech/master/api-reference/distributed/update-collection-cluster)
+- [Qdrant Client Documentation](https://qdrant.tech/documentation/)
+

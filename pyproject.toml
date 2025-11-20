@@ -8,12 +8,17 @@ dependencies = [
     "pymongo>=4.15.4",
     "python-dotenv>=1.2.1",
     "qdrant-client>=1.16.0",
+    "requests>=2.31.0",
 ]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = ["qdrant_distributed", "qdrant_distributed.cli", "qdrant_distributed.client", "qdrant_distributed.models", "qdrant_distributed.operations", "qdrant_distributed.services", "qdrant_distributed.interface"]
+py-modules = ["main"]
+
 [project.scripts]
-shard = "main:main"
-gui = "qdrant_distributed.interface.launcher:main"
+qdrant-shard = "main:main"
+qdrant-shard-gui = "qdrant_distributed.interface.launcher:main"

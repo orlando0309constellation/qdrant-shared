@@ -76,7 +76,7 @@ def main() -> int:
     
     # Display operation header
     formatter = ResultFormatter()
-    formatter.print_header("🔧 Qdrant Sharding Operations")
+    formatter.print_header("Qdrant Sharding Operations")
     print(f"Collection: {args.collection}")
     
     if args.list_shards:
@@ -102,18 +102,18 @@ def main() -> int:
     
     try:
         # Initialize QdrantClientManager (from existing configuration)
-        print("🔌 Initializing Qdrant client...")
+        print("[*] Initializing Qdrant client...")
         QdrantClientManager.initialize()
-        print("✅ Qdrant client initialized")
+        print("[+] Qdrant client initialized")
         print()
         
         # Initialize MongoDB if needed
         mongo_service = None
         if args.save or args.last_mongo or args.latest:
-            print("🔌 Initializing MongoDB connection...")
+            print("[*] Initializing MongoDB connection...")
             MongoManager.initialize()
             mongo_service = MongoService()
-            print("✅ MongoDB connection initialized")
+            print("[+] MongoDB connection initialized")
             print()
         
         # Initialize operations
@@ -122,7 +122,7 @@ def main() -> int:
         
         # Execute operation
         if args.move_shard:
-            print(f"🚀 Moving all shards from peer {args.from_peer} to peer {args.to_peer}")
+            print(f"[>] Moving all shards from peer {args.from_peer} to peer {args.to_peer}")
             print(f"   Method: {args.method}")
             print()
             
@@ -150,7 +150,7 @@ def main() -> int:
             )
         
         elif args.replicate_shard:
-            print(f"🔁 Replicating all shards from peer {args.from_peer} to peer {args.to_peer}")
+            print(f"[>] Replicating all shards from peer {args.from_peer} to peer {args.to_peer}")
             print(f"   Method: {args.method}")
             print()
             
@@ -178,7 +178,7 @@ def main() -> int:
             )
         
         elif args.abort_transfer:
-            print(f"🛑 Aborting transfer for shard {args.shard_id} from peer {args.from_peer} to peer {args.to_peer}")
+            print(f"[!] Aborting transfer for shard {args.shard_id} from peer {args.from_peer} to peer {args.to_peer}")
             print()
             
             result = shard_ops.abort_transfer(
@@ -193,14 +193,14 @@ def main() -> int:
         
         elif args.list_shards:
             if args.last_mongo:
-                print(f"📋 Retrieving peer information from MongoDB (latest)")
+                print(f"[*] Retrieving peer information from MongoDB (latest)")
                 print()
                 
                 peer_shards = mongo_service.get_latest_peers_as_dict()
                 peer_uris = mongo_service.get_latest_peer_uris()
                 formatter.print_shard_list(peer_shards, peer_uris)
             else:
-                print(f"📋 Listing all local shards from each peer in the cluster")
+                print(f"[*] Listing all local shards from each peer in the cluster")
                 print()
                 
                 peer_shards = cluster_ops.list_all_shards(
@@ -218,17 +218,17 @@ def main() -> int:
                 
                 # Save to MongoDB if requested
                 if args.save:
-                    print(f"\n💾 Saving peer information to MongoDB...")
+                    print(f"\n[*] Saving peer information to MongoDB...")
                     # Get peers info to retrieve URIs
                     from qdrant_distributed.client import ClusterClient
                     cluster_client = ClusterClient()
                     peers_dict, _ = cluster_client.get_peers(args.timeout)
                     peer_info_list = convert_peer_shards_to_peer_info(peer_shards, peers_dict)
                     mongo_service.save_peers(peer_info_list)
-                    print(f"✓ Peer information saved to MongoDB")
+                    print(f"[+] Peer information saved to MongoDB")
         
         print("\n" + "=" * 80)
-        print("✨ Operation completed")
+        print("[+] Operation completed")
         print("=" * 80)
         
         return 0
