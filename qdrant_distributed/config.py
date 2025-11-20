@@ -6,10 +6,31 @@ Centralizes environment variable reading to avoid duplication.
 import os
 from typing import Optional
 from dotenv import load_dotenv
-
+from pymongo import MongoClient
 # Load environment variables once at module level
 load_dotenv()
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+MONGO_DATABASE = os.getenv("MONGO_DATABASE")
+class MongoManager:
+    @classmethod
+    def initialize(cls, url: str = MONGO_URL):
+        client= MongoClient(url)
+        if client:
+            cls.client = client
+            cls.db = cls.client.get_database(MONGO_DATABASE)
+        else:
+            raise ValueError("Failed to connect to MongoDB")
+    
+    @classmethod
+    def get_db(cls):
+        if cls.db is None:
+            raise ValueError("Database not initialized")
+        return cls.db
 
+    def get_collection(cls, name: str):
+        if cls.db is None:
+            raise ValueError("Database not initialized")
+        return cls.db.get_collection(name)
 
 def get_qdrant_url(default: str = "localhost") -> str:
     """Get QDRANT_URL from environment with default."""

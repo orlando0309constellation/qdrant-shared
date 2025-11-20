@@ -38,12 +38,13 @@ class ResultFormatter:
                 print(f"  {usage}")
     
     @staticmethod
-    def print_shard_list(peer_shards: Dict[int, List[Any]]) -> None:
+    def print_shard_list(peer_shards: Dict[int, List[Any]], peer_uris: Dict[int, str] = None) -> None:
         """
         Format and print shard list.
         
         Args:
             peer_shards: Dictionary of peer IDs to shard lists
+            peer_uris: Optional dictionary mapping peer IDs to URIs
         """
         ResultFormatter.print_header("✅ Successfully retrieved shard information from all peers!")
         print()
@@ -56,7 +57,12 @@ class ResultFormatter:
         total_points = 0
         
         for peer_id, shards in sorted(peer_shards.items()):
-            print(f"📍 Peer {peer_id}:")
+            # Format peer display with URI if available
+            uri = peer_uris.get(peer_id, "") if peer_uris else ""
+            if uri:
+                print(f"📍 Peer {peer_id} ({uri}):")
+            else:
+                print(f"📍 Peer {peer_id}:")
             print(f"   {'='*70}")
             
             if not shards:
@@ -79,7 +85,7 @@ class ResultFormatter:
         print(f"📊 Summary:")
         print(f"   Total Peers: {len(peer_shards)}")
         print(f"   Total Local Shards: {total_shards}")
-        print(f"   Total Points: {total_points:,}")
+        print(f"   Total Local Points: {total_points:,}")
         print("=" * 80)
     
     @staticmethod
