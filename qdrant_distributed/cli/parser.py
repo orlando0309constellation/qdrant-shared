@@ -68,7 +68,7 @@ Available transfer methods:
         help="Abort an ongoing shard transfer"
     )
     operation_group.add_argument(
-        "-list", "--list-shards",
+        "-ls", "--list-shards",
         action="store_true",
         help="List all local shards from each peer in the cluster"
     )
@@ -80,26 +80,20 @@ Available transfer methods:
         help="ID of the shard to abort transfer (only used for -abort operation)"
     )
 
-    # parser.add_argument(
-    #     "--all-shards",
-    #     action="store_true",
-    #     default=False,
-    #     help="Move all shards from one peer to another"
-    # )
     parser.add_argument(
-        "--from-peer",
+        "-fp", "--from-peer",
         type=int,
         help="Source peer ID (required for -mv, -rs, and -abort)"
     )
     parser.add_argument(
-        "--to-peer",
+        "-tp", "--to-peer",
         type=int,
         help="Destination peer ID (required for -mv, -rs, and -abort)"
     )
     
     # Optional parameters
     parser.add_argument(
-        "--collection",
+        "-c", "--collection",
         type=str,
         default=default_collection,
         help=f"Collection name (default: {default_collection})"
@@ -116,6 +110,22 @@ Available transfer methods:
         type=int,
         default=120,
         help="Operation timeout in seconds (default: 120)"
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save peer information to MongoDB after operation"
+    )
+    parser.add_argument(
+        "-ml", "--last-mongo",
+        action="store_true",
+        dest="last_mongo",
+        help="Retrieve and display peer information from MongoDB (only for -list operation)"
+    )
+    parser.add_argument(
+        "--latest",
+        action="store_true",
+        help="Use latest peer information from MongoDB instead of querying (only for -mv and -rs operations)"
     )
 
     
@@ -148,4 +158,11 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
             parser.error("--from-peer is required for -abort operation")
         if args.to_peer is None:
             parser.error("--to-peer is required for -abort operation")
+    
+    # Validate MongoDB-related flags
+    if args.last_mongo and not args.list_shards:
+        parser.error("-ml/--last-mongo can only be used with -list operation")
+    
+    if args.latest and not (args.move_shard or args.replicate_shard):
+        parser.error("--latest can only be used with -mv or -rs operations")
 

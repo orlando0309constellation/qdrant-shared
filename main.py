@@ -20,10 +20,41 @@ from qdrant_distributed.constant import SHARED_COLLECTION_NAME
 from qdrant_distributed.client.qdrant_client import QdrantClientManager
 # Import refactored modules
 from qdrant_distributed import ShardOperations, ClusterOperations
-from qdrant_distributed.models import ShardTransferMethod
+from qdrant_distributed.models import ShardTransferMethod, PeerInfo
 from qdrant_distributed.exceptions import QdrantShardingError, ValidationError
 from qdrant_distributed.cli import ResultFormatter, create_argument_parser
 from qdrant_distributed.cli.parser import validate_args
+from qdrant_distributed.config import MongoManager
+from qdrant_distributed.services.mongo_service import MongoService
+from typing import Dict, List
+from qdrant_distributed.models.shard import ShardInfo
+
+
+def convert_peer_shards_to_peer_info(peer_shards: Dict[int, List[ShardInfo]], peers_dict: Dict[str, any]) -> List[PeerInfo]:
+    """
+    Convert peer_shards dictionary to list of PeerInfo objects.
+    
+    Args:
+        peer_shards: Dictionary mapping peer_id to list of ShardInfo objects
+        peers_dict: Dictionary containing peer information with URIs
+    
+    Returns:
+        List of PeerInfo objects
+    """
+    peer_info_list = []
+    for peer_id, shards in peer_shards.items():
+        # Get URI from peers_dict
+        peer_data = peers_dict.get(str(peer_id), {})
+        uri = peer_data.get("uri", "")
+        
+        peer_info = PeerInfo(
+            peer_id=peer_id,
+            uri=uri,
+            local_shards=shards
+        )
+        peer_info_list.append(peer_info)
+    
+    return peer_info_list
 
 
 def main() -> int:
@@ -76,6 +107,15 @@ def main() -> int:
         print("✅ Qdrant client initialized")
         print()
         
+        # Initialize MongoDB if needed
+        mongo_service = None
+        if args.save or args.last_mongo or args.latest:
+            print("🔌 Initializing MongoDB connection...")
+            MongoManager.initialize()
+            mongo_service = MongoService()
+            print("✅ MongoDB connection initialized")
+            print()
+        
         # Initialize operations
         shard_ops = ShardOperations()
         cluster_ops = ClusterOperations()
@@ -87,11 +127,16 @@ def main() -> int:
             print()
             
             # Get all shards from both peers
-            print(f"📋 Getting shard information from peers...")
-            all_peer_shards = cluster_ops.list_all_shards(
-                collection_name=args.collection,
-                timeout=args.timeout
-            )
+            if args.latest:
+                print(f"📋 Getting shard information from MongoDB (latest)...")
+                all_peer_shards = mongo_service.get_latest_peers_as_dict()
+                print(f"✓ Retrieved peer information from MongoDB")
+            else:
+                print(f"📋 Getting shard information from peers...")
+                all_peer_shards = cluster_ops.list_all_shards(
+                    collection_name=args.collection,
+                    timeout=args.timeout
+                )
             print()
             
             # Use move_all to handle the entire workflow
@@ -110,11 +155,16 @@ def main() -> int:
             print()
             
             # Get all shards from both peers
-            print(f"📋 Getting shard information from peers...")
-            all_peer_shards = cluster_ops.list_all_shards(
-                collection_name=args.collection,
-                timeout=args.timeout
-            )
+            if args.latest:
+                print(f"📋 Getting shard information from MongoDB (latest)...")
+                all_peer_shards = mongo_service.get_latest_peers_as_dict()
+                print(f"✓ Retrieved peer information from MongoDB")
+            else:
+                print(f"📋 Getting shard information from peers...")
+                all_peer_shards = cluster_ops.list_all_shards(
+                    collection_name=args.collection,
+                    timeout=args.timeout
+                )
             print()
             
             # Use replicate_all to handle the entire workflow
@@ -142,15 +192,40 @@ def main() -> int:
             formatter.print_operation_result(result)
         
         elif args.list_shards:
-            print(f"📋 Listing all local shards from each peer in the cluster")
-            print()
-            
-            peer_shards = cluster_ops.list_all_shards(
-                collection_name=args.collection,
-                timeout=args.timeout
-            )
-            
-            formatter.print_shard_list(peer_shards)
+            if args.last_mongo:
+                print(f"📋 Retrieving peer information from MongoDB (latest)")
+                print()
+                
+                peer_shards = mongo_service.get_latest_peers_as_dict()
+                peer_uris = mongo_service.get_latest_peer_uris()
+                formatter.print_shard_list(peer_shards, peer_uris)
+            else:
+                print(f"📋 Listing all local shards from each peer in the cluster")
+                print()
+                
+                peer_shards = cluster_ops.list_all_shards(
+                    collection_name=args.collection,
+                    timeout=args.timeout
+                )
+                
+                # Get peer URIs for display
+                from qdrant_distributed.client import ClusterClient
+                cluster_client = ClusterClient()
+                peers_dict, _ = cluster_client.get_peers(args.timeout)
+                peer_uris = {int(pid): peer_data.get("uri", "") for pid, peer_data in peers_dict.items()}
+                
+                formatter.print_shard_list(peer_shards, peer_uris)
+                
+                # Save to MongoDB if requested
+                if args.save:
+                    print(f"\n💾 Saving peer information to MongoDB...")
+                    # Get peers info to retrieve URIs
+                    from qdrant_distributed.client import ClusterClient
+                    cluster_client = ClusterClient()
+                    peers_dict, _ = cluster_client.get_peers(args.timeout)
+                    peer_info_list = convert_peer_shards_to_peer_info(peer_shards, peers_dict)
+                    mongo_service.save_peers(peer_info_list)
+                    print(f"✓ Peer information saved to MongoDB")
         
         print("\n" + "=" * 80)
         print("✨ Operation completed")
