@@ -79,7 +79,7 @@ class ClusterService:
             # Store the peer's shard info
             peer_shards[peer_id] = local_shards
             queried_peers.add(peer_id)
-            print(f"✓ Retrieved shard info from peer {peer_id} ({len(local_shards)} local shards)")
+            print(f"[+] Retrieved shard info from peer {peer_id} ({len(local_shards)} local shards)")
             
             # Stop if we've collected all peers
             if len(queried_peers) >= expected_peer_count:

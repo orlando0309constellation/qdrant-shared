@@ -1,4 +1,5 @@
 README.md
+main.py
 pyproject.toml
 qdrant_distributed/__init__.py
 qdrant_distributed/config.py

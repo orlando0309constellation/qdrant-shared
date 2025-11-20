@@ -23,13 +23,13 @@ class ResultFormatter:
         Args:
             result: Operation result dictionary
         """
-        ResultFormatter.print_header("✅ Operation completed successfully!")
+        ResultFormatter.print_header("[+] Operation completed successfully!")
         print(f"Status: {result.get('status')}")
         print(f"Result: {result.get('result')}")
         print(f"Time: {result.get('time', 0):.3f}s")
         
         if result.get('usage'):
-            print("\n📊 Resource Usage:")
+            print("\n[*] Resource Usage:")
             usage = result.get('usage')
             if isinstance(usage, dict):
                 for key, value in usage.items():
@@ -46,11 +46,11 @@ class ResultFormatter:
             peer_shards: Dictionary of peer IDs to shard lists
             peer_uris: Optional dictionary mapping peer IDs to URIs
         """
-        ResultFormatter.print_header("✅ Successfully retrieved shard information from all peers!")
+        ResultFormatter.print_header("[+] Successfully retrieved shard information from all peers!")
         print()
         
         if not peer_shards:
-            print("⚠️  No peers found or no shard information available")
+            print("[!] No peers found or no shard information available")
             return
         
         total_shards = 0
@@ -60,9 +60,9 @@ class ResultFormatter:
             # Format peer display with URI if available
             uri = peer_uris.get(peer_id, "") if peer_uris else ""
             if uri:
-                print(f"📍 Peer {peer_id} ({uri}):")
+                print(f"[*] Peer {peer_id} ({uri}):")
             else:
-                print(f"📍 Peer {peer_id}:")
+                print(f"[*] Peer {peer_id}:")
             print(f"   {'='*70}")
             
             if not shards:
@@ -75,14 +75,14 @@ class ResultFormatter:
                     total_shards += 1
                     total_points += points_count
                     
-                    print(f"   ├─ Shard {shard_id}")
-                    print(f"   │  ├─ Points: {points_count:,}")
-                    print(f"   │  └─ State: {state}")
+                    print(f"   - Shard {shard_id}")
+                    print(f"     - Points: {points_count:,}")
+                    print(f"     - State: {state}")
             
             print()
         
         print("=" * 80)
-        print(f"📊 Summary:")
+        print(f"[*] Summary:")
         print(f"   Total Peers: {len(peer_shards)}")
         print(f"   Total Local Shards: {total_shards}")
         print(f"   Total Local Points: {total_points:,}")
@@ -99,7 +99,7 @@ class ResultFormatter:
             suggestions: Optional list of suggestions
         """
         print("=" * 80)
-        print(f"❌ {error_type}")
+        print(f"[!] {error_type}")
         print("=" * 80)
         print(f"Error: {message}")
         
