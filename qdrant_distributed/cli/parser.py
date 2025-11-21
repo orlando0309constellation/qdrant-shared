@@ -76,8 +76,8 @@ Available transfer methods:
     # Parameters for move/abort operations
     parser.add_argument(
         "--shard-id",
-        type=int,
-        help="ID of the shard to abort transfer (only used for -abort operation)"
+        type=str,
+        help="ID(s) of the shard(s) to operate on. For -mv and -rs: comma-separated list (e.g., '1,2,3'). For -abort: single shard ID."
     )
 
     parser.add_argument(

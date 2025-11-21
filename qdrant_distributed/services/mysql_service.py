@@ -8,46 +8,43 @@ import json
 
 class MySQLService:
     def __init__(self, mysql_manager: MySQLManager = None):
-        self.mysql_manager = mysql_manager or MySQLManager()
+        # MySQLManager uses class variables, so we just need the class reference
+        # The connection is stored at MySQLManager.connection (class level)
+        pass
     
     def save_peers(self, peers: List[PeerInfo]):
         """
-        Save peers to MySQL.
+        Save peers to MySQL with shards stored as JSON for better performance.
         
         Args:
             peers: List of PeerInfo objects to save
         """
         try:
-            if self.mysql_manager.connection is None:
-                raise ValueError("Database not initialized")
+            if MySQLManager.connection is None:
+                raise ValueError("MySQL Connection not available. Please initialize MySQL first using MySQLManager.initialize()")
             
-            cursor = self.mysql_manager.connection.cursor()
+            cursor = MySQLManager.connection.cursor()
             
             try:
                 # Generate snapshot ID (unix timestamp in milliseconds)
                 timestamp = datetime.now()
                 snapshot_id = int(timestamp.timestamp() * 1000)
                 
-                # Insert peers and shards with the same snapshot_id
+                # Insert peers with shards as JSON (much faster - one INSERT per peer instead of N+1)
                 for peer in peers:
-                    # Insert peer
-                    cursor.execute(
-                        """INSERT INTO peers (snapshot_id, peer_id, uri, created_at) 
-                           VALUES (%s, %s, %s, %s)""",
-                        (snapshot_id, peer.peer_id, peer.uri, timestamp)
-                    )
+                    # Serialize shards to JSON array
+                    shards_json = json.dumps([shard.to_dict() for shard in peer.local_shards])
                     
-                    # Insert shards for this peer
-                    for shard in peer.local_shards:
-                        cursor.execute(
-                            """INSERT INTO shards (snapshot_id, peer_id, shard_id, points_count, state, created_at)
-                               VALUES (%s, %s, %s, %s, %s, %s)""",
-                            (snapshot_id, peer.peer_id, shard.shard_id, shard.points_count, shard.state.value, timestamp)
-                        )
+                    # Insert peer with shards as JSON
+                    cursor.execute(
+                        """INSERT INTO peers (snapshot_id, peer_id, uri, shards_json, created_at) 
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        (snapshot_id, peer.peer_id, peer.uri, shards_json, timestamp)
+                    )
                 
-                self.mysql_manager.connection.commit()
+                MySQLManager.connection.commit()
             except Exception as e:
-                self.mysql_manager.connection.rollback()
+                MySQLManager.connection.rollback()
                 raise e
             finally:
                 cursor.close()
@@ -58,55 +55,61 @@ class MySQLService:
     def get_latest_peers(self) -> Optional[Dict]:
         """
         Get the latest peers document from MySQL.
+        Uses JSON column for shards - much faster (single query instead of N+1).
         
         Returns:
             Dictionary containing timestamp and peers list, or None if not found
         """
-        if self.mysql_manager.connection is None:
-            raise ValueError("Database not initialized")
+        if MySQLManager.connection is None:
+            raise ValueError("MySQL Connection not available. Please initialize MySQL first using MySQLManager.initialize()")
         
         # Use dictionary=True for dictionary results (works with both C and pure Python implementation)
-        cursor = self.mysql_manager.connection.cursor(dictionary=True)
+        cursor = MySQLManager.connection.cursor(dictionary=True)
         
         try:
-            # Get latest snapshot_id
+            # Get latest snapshot with all peer data including JSON shards (single query!)
             cursor.execute("""
-                SELECT MAX(snapshot_id) as snapshot_id, MAX(created_at) as timestamp 
+                SELECT 
+                    snapshot_id,
+                    peer_id,
+                    uri,
+                    shards_json,
+                    created_at as timestamp
                 FROM peers
+                WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM peers)
+                ORDER BY peer_id
             """)
-            snapshot = cursor.fetchone()
-            
-            if not snapshot or snapshot['snapshot_id'] is None:
-                return None
-            
-            snapshot_id = snapshot['snapshot_id']
-            timestamp = snapshot['timestamp']
-            
-            # Get peers for this snapshot
-            cursor.execute("""
-                SELECT DISTINCT peer_id, uri 
-                FROM peers 
-                WHERE snapshot_id = %s
-            """, (snapshot_id,))
             peers_data = cursor.fetchall()
             
-            # Get shards for each peer in this snapshot
+            if not peers_data:
+                return None
+            
+            # Get timestamp from first row
+            timestamp = peers_data[0]['timestamp']
+            snapshot_id = peers_data[0]['snapshot_id']
+            
+            # Parse peers with shards from JSON
             peers_list = []
             for peer_data in peers_data:
                 peer_id = peer_data['peer_id']
                 
-                cursor.execute("""
-                    SELECT shard_id, points_count, state 
-                    FROM shards 
-                    WHERE snapshot_id = %s AND peer_id = %s
-                """, (snapshot_id, peer_id))
-                shards_data = cursor.fetchall()
+                # Parse shards from JSON column
+                shards_json = peer_data.get('shards_json')
+                if shards_json:
+                    if isinstance(shards_json, str):
+                        shards_data = json.loads(shards_json)
+                    else:
+                        # MySQL JSON column may return dict/list directly
+                        shards_data = shards_json if isinstance(shards_json, list) else json.loads(str(shards_json))
+                else:
+                    shards_data = []
                 
+                # Convert to ShardInfo objects
                 shards = [ShardInfo.from_dict(shard) for shard in shards_data]
                 
                 peer_dict = {
                     "peer_id": peer_id,
-                    "uri": peer_data['uri'] or "",
+                    "uri": peer_data.get('uri') or "",
                     "local_shards": [shard.to_dict() for shard in shards]
                 }
                 peers_list.append(peer_dict)

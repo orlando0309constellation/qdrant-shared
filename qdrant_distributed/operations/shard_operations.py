@@ -74,7 +74,8 @@ class ShardOperations:
     from_peer_id:int,
     to_peer_id:int,
     method: Optional[ShardTransferMethod] = None,
-    timeout: Optional[int] = None
+    timeout: Optional[int] = None,
+    shard_ids: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         from_peer_shards = all_shards.get(from_peer_id, [])
         to_peer_shards = all_shards.get(to_peer_id, [])
@@ -83,6 +84,17 @@ class ShardOperations:
 
         print(f"   Found {len(from_peer_shards)} shards in peer {from_peer_id}")
         print(f"   Found {len(to_peer_shards)} shards in peer {to_peer_id}")
+
+        # Filter by shard_ids if provided
+        if shard_ids is not None:
+            shard_ids_set = set(shard_ids)
+            from_peer_shards = [shard for shard in from_peer_shards if shard.shard_id in shard_ids_set]
+            if len(shard_ids) != len(from_peer_shards):
+                found_ids = {shard.shard_id for shard in from_peer_shards}
+                missing_ids = shard_ids_set - found_ids
+                if missing_ids:
+                    print(f"⚠️  Warning: Shard ID(s) {sorted(missing_ids)} not found in peer {from_peer_id}")
+            print(f"   Filtering to {len(shard_ids)} specified shard ID(s): {sorted(shard_ids)}")
 
         shards_to_move = [shard for shard in from_peer_shards if shard.shard_id not in to_peer_shard_ids]
 
@@ -101,7 +113,7 @@ class ShardOperations:
                         shard_id=shard.shard_id,
                         from_peer_id=from_peer_id,
                         to_peer_id=to_peer_id,
-                        method=ShardTransferMethod(method),
+                        method=method,
                         timeout=timeout
                     )
                     results.append((shard.shard_id, result, None))
@@ -125,7 +137,8 @@ class ShardOperations:
     from_peer_id:int,
     to_peer_id:int,
     method: Optional[ShardTransferMethod] = None,
-    timeout: Optional[int] = None
+    timeout: Optional[int] = None,
+    shard_ids: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         from_peer_shards = all_shards.get(from_peer_id, [])
         to_peer_shards = all_shards.get(to_peer_id, [])
@@ -134,6 +147,17 @@ class ShardOperations:
 
         print(f"   Found {len(from_peer_shards)} shards in peer {from_peer_id}")
         print(f"   Found {len(to_peer_shards)} shards in peer {to_peer_id}")
+
+        # Filter by shard_ids if provided
+        if shard_ids is not None:
+            shard_ids_set = set(shard_ids)
+            from_peer_shards = [shard for shard in from_peer_shards if shard.shard_id in shard_ids_set]
+            if len(shard_ids) != len(from_peer_shards):
+                found_ids = {shard.shard_id for shard in from_peer_shards}
+                missing_ids = shard_ids_set - found_ids
+                if missing_ids:
+                    print(f"⚠️  Warning: Shard ID(s) {sorted(missing_ids)} not found in peer {from_peer_id}")
+            print(f"   Filtering to {len(shard_ids)} specified shard ID(s): {sorted(shard_ids)}")
 
         shards_to_replicate = [shard for shard in from_peer_shards if shard.shard_id not in to_peer_shard_ids]
 
@@ -152,7 +176,7 @@ class ShardOperations:
                         shard_id=shard.shard_id,
                         from_peer_id=from_peer_id,
                         to_peer_id=to_peer_id,
-                        method=ShardTransferMethod(method),
+                        method=method,
                         timeout=timeout
                     )
                     results.append((shard.shard_id, result, None))

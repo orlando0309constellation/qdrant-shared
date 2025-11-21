@@ -8,19 +8,32 @@
 -- Table: peers
 -- Stores peer information with snapshot tracking
 -- Each snapshot represents a point-in-time capture of the cluster state
+-- OPTIMIZED: Shards are stored as JSON array for fast read/write (1 INSERT per peer instead of N+1)
 CREATE TABLE IF NOT EXISTS peers (
     id INT AUTO_INCREMENT PRIMARY KEY,
     snapshot_id BIGINT NOT NULL COMMENT 'Unix timestamp in milliseconds to group related records',
     peer_id BIGINT NOT NULL COMMENT 'Qdrant peer ID',
     uri VARCHAR(500) COMMENT 'Peer URI/endpoint',
+    shards_json JSON COMMENT 'Array of shards as JSON for fast read/write - format: [{"shard_id": 0, "points_count": 1000, "state": "Active"}, ...]',
     created_at DATETIME NOT NULL COMMENT 'Timestamp when this record was created',
     INDEX idx_snapshot_id (snapshot_id),
     INDEX idx_peer_id (peer_id),
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stores Qdrant peer information snapshots';
 
--- Table: shards
--- Stores shard information for each peer
+-- Migration: Add shards_json column to existing tables (run manually if needed)
+-- Note: IF NOT EXISTS is not standard SQL, so check if column exists first:
+-- SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+-- WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'peers' AND COLUMN_NAME = 'shards_json';
+-- Then run:
+-- ALTER TABLE peers 
+-- ADD COLUMN shards_json JSON COMMENT 'Array of shards as JSON for fast read/write'
+-- AFTER uri;
+
+-- Table: shards (DEPRECATED - kept for backward compatibility)
+-- NOTE: Shards are now stored as JSON in the peers.shards_json column for better performance.
+-- This table is no longer used but kept for migration purposes.
+-- You can drop this table after migrating to the new format.
 CREATE TABLE IF NOT EXISTS shards (
     id INT AUTO_INCREMENT PRIMARY KEY,
     snapshot_id BIGINT NOT NULL COMMENT 'Links to the same snapshot as peers table',

@@ -59,6 +59,9 @@ class QdrantManagerApp:
         self.current_peer_shards: Optional[Dict[int, List[ShardInfo]]] = None
         self.current_peer_uris: Optional[Dict[int, str]] = None
         
+        # Track selection before click for toggle detection
+        self.selection_before_click = set()
+        
         # Setup UI
         self.setup_ui()
         
@@ -230,8 +233,14 @@ class QdrantManagerApp:
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
         
-        # Bind double-click event to copy Peer ID
+        # Bind click events for toggle selection
+        # Use ButtonRelease-1 to check selection after Treeview processes the click
+        self.shard_tree.bind("<Button-1>", self.on_tree_click_down)
+        self.shard_tree.bind("<ButtonRelease-1>", self.on_tree_click_up)
         self.shard_tree.bind("<Double-1>", self.on_tree_double_click)
+        
+        # Track selection before click for toggle detection
+        self.selection_before_click = set()
         
         # Configure treeview tags for state colors
         self.shard_tree.tag_configure("active", background="#d4edda")
@@ -303,6 +312,11 @@ class QdrantManagerApp:
     def on_operation_change(self):
         """Update UI based on selected operation."""
         operation = self.operation_var.get()
+        
+        # Uncheck all option checkboxes when operation changes
+        self.save_var.set(False)
+        self.latest_var.set(False)
+        self.last_mongo_var.set(False)
         
         # Clear dynamic parameters
         for widget in self.params_frame.winfo_children():
@@ -554,13 +568,33 @@ class QdrantManagerApp:
                 self.mysql_service.save_peers(peer_info_list)
                 self.log_output("✓ Peer information saved to MySQL", "success")
     
+    def get_selected_shard_ids(self, from_peer: int) -> List[int]:
+        """Get selected shard IDs from the Treeview that belong to the specified peer."""
+        selected_shard_ids = []
+        selected_items = self.shard_tree.selection()
+        
+        for item in selected_items:
+            item_peer_id = int(self.shard_tree.set(item, "Peer ID"))
+            if item_peer_id == from_peer:
+                shard_id = int(self.shard_tree.set(item, "Shard ID"))
+                selected_shard_ids.append(shard_id)
+        
+        # Remove duplicates and sort
+        return sorted(list(set(selected_shard_ids)))
+    
     def execute_move_operation(self, collection: str, timeout: int):
         """Execute move shards operation."""
         from_peer = int(self.from_peer_var.get())
         to_peer = int(self.to_peer_var.get())
         method = self.method_var.get()
         
-        self.log_output(f"🚀 Moving all shards from peer {from_peer} to peer {to_peer}", "info")
+        # Get selected shard IDs from Treeview (only from from_peer)
+        selected_shard_ids = self.get_selected_shard_ids(from_peer)
+        
+        if selected_shard_ids:
+            self.log_output(f"🚀 Moving shards {selected_shard_ids} from peer {from_peer} to peer {to_peer}", "info")
+        else:
+            self.log_output(f"🚀 Moving all shards from peer {from_peer} to peer {to_peer}", "info")
         self.log_output(f"   Method: {method}\n", "info")
         self.update_progress(30)
         
@@ -587,7 +621,8 @@ class QdrantManagerApp:
             from_peer_id=from_peer,
             to_peer_id=to_peer,
             method=ShardTransferMethod(method),
-            timeout=timeout
+            timeout=timeout,
+            shard_ids=selected_shard_ids if selected_shard_ids else None
         )
         self.update_progress(85)
     
@@ -597,7 +632,13 @@ class QdrantManagerApp:
         to_peer = int(self.to_peer_var.get())
         method = self.method_var.get()
         
-        self.log_output(f"🔁 Replicating all shards from peer {from_peer} to peer {to_peer}", "info")
+        # Get selected shard IDs from Treeview (only from from_peer)
+        selected_shard_ids = self.get_selected_shard_ids(from_peer)
+        
+        if selected_shard_ids:
+            self.log_output(f"🔁 Replicating shards {selected_shard_ids} from peer {from_peer} to peer {to_peer}", "info")
+        else:
+            self.log_output(f"🔁 Replicating all shards from peer {from_peer} to peer {to_peer}", "info")
         self.log_output(f"   Method: {method}\n", "info")
         self.update_progress(30)
         
@@ -624,7 +665,8 @@ class QdrantManagerApp:
             from_peer_id=from_peer,
             to_peer_id=to_peer,
             method=ShardTransferMethod(method),
-            timeout=timeout
+            timeout=timeout,
+            shard_ids=selected_shard_ids if selected_shard_ids else None
         )
         self.update_progress(85)
     
@@ -741,6 +783,41 @@ class QdrantManagerApp:
         elif "replica" in state_lower:
             return "replica"
         return ""
+    
+    def on_tree_click_down(self, event):
+        """Store selection state before click to detect toggle."""
+        # Store current selection before the click is processed
+        self.selection_before_click = set(self.shard_tree.selection())
+    
+    def on_tree_click_up(self, event):
+        """Handle mouse button release to toggle selection."""
+        # Check if Ctrl or Cmd key is held (for multi-select)
+        is_multi_select = (event.state & 0x4) != 0 or (event.state & 0x20000) != 0  # Ctrl or Cmd
+        
+        # Get the item under the cursor
+        item = self.shard_tree.identify_row(event.y)
+        if not item:
+            # Clicked on empty space - selection already cleared by Treeview
+            self.selection_before_click = set()
+            return
+        
+        # Get current selection after click
+        current_selection = set(self.shard_tree.selection())
+        
+        # If item was selected before click and is still selected now, toggle it off
+        if item in self.selection_before_click and item in current_selection:
+            # Only toggle if not in multi-select mode (Ctrl/Cmd)
+            if not is_multi_select:
+                # If it's the only selected item, deselect it
+                if len(current_selection) == 1 and item in current_selection:
+                    self.shard_tree.selection_remove(item)
+                # If multiple items are selected and this was one of them, allow toggle
+                elif item in current_selection and len(current_selection) > len(self.selection_before_click):
+                    # New item was added - don't toggle
+                    pass
+                elif item in current_selection:
+                    # Same item clicked - toggle it off
+                    self.shard_tree.selection_remove(item)
     
     def on_tree_double_click(self, event):
         """Handle double-click on treeview to copy Peer ID."""

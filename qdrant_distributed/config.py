@@ -114,19 +114,43 @@ class MySQLManager:
         """Create required tables if they don't exist and migrate peer_id to BIGINT if needed."""
         cursor = cls.connection.cursor()
         
-        # Create peers table with snapshot tracking
+        # Create peers table with snapshot tracking and JSON column for shards (optimized)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS peers (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 snapshot_id BIGINT NOT NULL,
                 peer_id BIGINT NOT NULL,
                 uri VARCHAR(500),
+                shards_json JSON COMMENT 'Array of shards as JSON for fast read/write',
                 created_at DATETIME NOT NULL,
                 INDEX idx_snapshot_id (snapshot_id),
                 INDEX idx_peer_id (peer_id),
                 INDEX idx_created_at (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """)
+        
+        # Add shards_json column if it doesn't exist (migration for existing tables)
+        try:
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'peers'
+                AND COLUMN_NAME = 'shards_json'
+            """)
+            result = cursor.fetchone()
+            has_shards_json = (result[0] if result else 0) > 0
+            
+            if not has_shards_json:
+                cursor.execute("""
+                    ALTER TABLE peers 
+                    ADD COLUMN shards_json JSON COMMENT 'Array of shards as JSON for fast read/write'
+                    AFTER uri
+                """)
+                cls.connection.commit()
+        except Exception as e:
+            # Column might already exist or there's a compatibility issue (e.g., old MySQL version)
+            print(f"Note: Could not add shards_json column (may already exist or unsupported): {e}")
         
         # Create shards table
         cursor.execute("""

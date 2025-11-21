@@ -86,10 +86,18 @@ def main() -> int:
         if args.move_shard or args.replicate_shard:
             print(f"From Peer: {args.from_peer}")
             print(f"To Peer: {args.to_peer}")
+            if args.shard_id:
+                print(f"Shard IDs: {args.shard_id}")
             if args.move_shard:
-                print(f"Operation: Move All Shards (method: {args.method})")
+                if args.shard_id:
+                    print(f"Operation: Move Specific Shards (method: {args.method})")
+                else:
+                    print(f"Operation: Move All Shards (method: {args.method})")
             else:
-                print(f"Operation: Replicate All Shards (method: {args.method})")
+                if args.shard_id:
+                    print(f"Operation: Replicate Specific Shards (method: {args.method})")
+                else:
+                    print(f"Operation: Replicate All Shards (method: {args.method})")
         else:
             print(f"Shard ID: {args.shard_id}")
             print(f"From Peer: {args.from_peer}")
@@ -121,9 +129,27 @@ def main() -> int:
         shard_ops = ShardOperations()
         cluster_ops = ClusterOperations()
         
+        # Parse shard IDs if provided (comma-separated for move/replicate, single int for abort)
+        shard_ids = None
+        if args.shard_id:
+            if args.move_shard or args.replicate_shard:
+                # Parse comma-separated shard IDs
+                try:
+                    shard_ids = [int(sid.strip()) for sid in args.shard_id.split(',')]
+                except ValueError:
+                    formatter.print_error(
+                        "Invalid Shard ID Format",
+                        f"Shard IDs must be comma-separated integers (e.g., '1,2,3'). Got: {args.shard_id}",
+                        ["Use format: --shard-id 1,2,3,4,5"]
+                    )
+                    return 1
+        
         # Execute operation
         if args.move_shard:
-            print(f"[>] Moving all shards from peer {args.from_peer} to peer {args.to_peer}")
+            if shard_ids:
+                print(f"[>] Moving shards {shard_ids} from peer {args.from_peer} to peer {args.to_peer}")
+            else:
+                print(f"[>] Moving all shards from peer {args.from_peer} to peer {args.to_peer}")
             print(f"   Method: {args.method}")
             print()
             
@@ -147,11 +173,15 @@ def main() -> int:
                 from_peer_id=args.from_peer,
                 to_peer_id=args.to_peer,
                 method=ShardTransferMethod(args.method),
-                timeout=args.timeout
+                timeout=args.timeout,
+                shard_ids=shard_ids
             )
         
         elif args.replicate_shard:
-            print(f"[>] Replicating all shards from peer {args.from_peer} to peer {args.to_peer}")
+            if shard_ids:
+                print(f"[>] Replicating shards {shard_ids} from peer {args.from_peer} to peer {args.to_peer}")
+            else:
+                print(f"[>] Replicating all shards from peer {args.from_peer} to peer {args.to_peer}")
             print(f"   Method: {args.method}")
             print()
             
@@ -175,16 +205,35 @@ def main() -> int:
                 from_peer_id=args.from_peer,
                 to_peer_id=args.to_peer,
                 method=ShardTransferMethod(args.method),
-                timeout=args.timeout
+                timeout=args.timeout,
+                shard_ids=shard_ids
             )
         
         elif args.abort_transfer:
-            print(f"[!] Aborting transfer for shard {args.shard_id} from peer {args.from_peer} to peer {args.to_peer}")
+            # For abort, shard_id should be a single integer
+            if not args.shard_id or ',' in args.shard_id:
+                formatter.print_error(
+                    "Invalid Shard ID",
+                    "For -abort operation, --shard-id must be a single integer",
+                    ["Use format: --shard-id 1"]
+                )
+                return 1
+            try:
+                shard_id = int(args.shard_id)
+            except ValueError:
+                formatter.print_error(
+                    "Invalid Shard ID",
+                    f"Shard ID must be an integer. Got: {args.shard_id}",
+                    ["Use format: --shard-id 1"]
+                )
+                return 1
+            
+            print(f"[!] Aborting transfer for shard {shard_id} from peer {args.from_peer} to peer {args.to_peer}")
             print()
             
             result = shard_ops.abort_transfer(
                 collection_name=args.collection,
-                shard_id=args.shard_id,
+                shard_id=shard_id,
                 from_peer_id=args.from_peer,
                 to_peer_id=args.to_peer,
                 timeout=args.timeout
