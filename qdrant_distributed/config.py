@@ -1,6 +1,7 @@
 """
 Configuration utilities for Qdrant client settings.
 Centralizes environment variable reading to avoid duplication.
+Supports both SQLite configuration (GUI) and environment variables (CLI).
 """
 
 import os
@@ -10,11 +11,59 @@ from dotenv import load_dotenv
 # Load environment variables once at module level
 load_dotenv()
 
+# Lazy import to avoid circular dependencies
+_config_service = None
+
+def _get_config_service():
+    """Get ConfigService instance (lazy import)."""
+    global _config_service
+    if _config_service is None:
+        from qdrant_distributed.services.config_service import ConfigService
+        _config_service = ConfigService
+        # Initialize if not already initialized
+        if _config_service._connection is None:
+            _config_service.initialize()
+    return _config_service
+
 # MongoDB Configuration
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
 
-# MySQL Configuration
+# MySQL Configuration - with ConfigService fallback
+def get_mysql_host(default: str = "localhost") -> str:
+    """Get MYSQL_HOST from ConfigService or environment with default."""
+    config_service = _get_config_service()
+    return config_service.get("MYSQL_HOST") or os.getenv("MYSQL_HOST", default)
+
+def get_mysql_port(default: int = 3306) -> int:
+    """Get MYSQL_PORT from ConfigService or environment with default."""
+    config_service = _get_config_service()
+    port_str = config_service.get("MYSQL_PORT")
+    if port_str:
+        try:
+            return int(port_str)
+        except ValueError:
+            pass
+    return int(os.getenv("MYSQL_PORT", str(default)))
+
+def get_mysql_user(default: str = "root") -> str:
+    """Get MYSQL_USER from ConfigService or environment with default."""
+    config_service = _get_config_service()
+    return config_service.get("MYSQL_USER") or os.getenv("MYSQL_USER", default)
+
+def get_mysql_password(default: str = "") -> str:
+    """Get MYSQL_PASSWORD from ConfigService or environment with default."""
+    config_service = _get_config_service()
+    return config_service.get("MYSQL_PASSWORD") or os.getenv("MYSQL_PASSWORD", default)
+
+def get_mysql_database(default: str = "qdrant_manager") -> str:
+    """Get MYSQL_DATABASE from ConfigService or environment with default."""
+    config_service = _get_config_service()
+    return config_service.get("MYSQL_DATABASE") or os.getenv("MYSQL_DATABASE", default)
+
+# Backward compatibility - module-level variables (evaluated at import time)
+# Note: These are static values from environment at import time.
+# For dynamic values, use the get_* functions instead.
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
 MYSQL_USER = os.getenv("MYSQL_USER", "root")
@@ -75,11 +124,11 @@ class MySQLManager:
         Initialize MySQL connection.
         
         Args:
-            host: MySQL host (defaults to MYSQL_HOST env var)
-            port: MySQL port (defaults to MYSQL_PORT env var)
-            user: MySQL user (defaults to MYSQL_USER env var)
-            password: MySQL password (defaults to MYSQL_PASSWORD env var)
-            database: MySQL database name (defaults to MYSQL_DATABASE env var)
+            host: MySQL host (defaults to ConfigService or MYSQL_HOST env var)
+            port: MySQL port (defaults to ConfigService or MYSQL_PORT env var)
+            user: MySQL user (defaults to ConfigService or MYSQL_USER env var)
+            password: MySQL password (defaults to ConfigService or MYSQL_PASSWORD env var)
+            database: MySQL database name (defaults to ConfigService or MYSQL_DATABASE env var)
         
         Raises:
             ImportError: If mysql-connector-python is not installed
@@ -95,11 +144,11 @@ class MySQLManager:
         
         try:
             cls.connection = mysql.connector.connect(
-                host=host or MYSQL_HOST,
-                port=port or MYSQL_PORT,
-                user=user or MYSQL_USER,
-                password=password or MYSQL_PASSWORD,
-                database=database or MYSQL_DATABASE,
+                host=host or get_mysql_host(),
+                port=port or get_mysql_port(),
+                user=user or get_mysql_user(),
+                password=password or get_mysql_password(),
+                database=database or get_mysql_database(),
                 autocommit=False
             )
             cls.db = cls.connection
@@ -231,31 +280,35 @@ class MySQLManager:
             cls.db = None
 
 def get_qdrant_url(default: str = "localhost") -> str:
-    """Get QDRANT_URL from environment with default."""
-    return os.getenv("QDRANT_URL", default)
+    """Get QDRANT_URL from ConfigService or environment with default."""
+    config_service = _get_config_service()
+    return config_service.get("QDRANT_URL") or os.getenv("QDRANT_URL", default)
 
 
 def get_qdrant_port(default: str = "6333") -> str:
-    """Get QDRANT_PORT from environment with default."""
-    return os.getenv("QDRANT_PORT", default)
+    """Get QDRANT_PORT from ConfigService or environment with default."""
+    config_service = _get_config_service()
+    return config_service.get("QDRANT_PORT") or os.getenv("QDRANT_PORT", default)
 
 
 def get_qdrant_api_key() -> Optional[str]:
-    """Get QDRANT_API_KEY from environment."""
-    return os.getenv("QDRANT_API_KEY")
+    """Get QDRANT_API_KEY from ConfigService or environment."""
+    config_service = _get_config_service()
+    return config_service.get("QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY")
 
 
 def get_qdrant_https(default: Optional[bool] = None) -> Optional[bool]:
     """
-    Get QDRANT_HTTPS from environment and convert to boolean.
+    Get QDRANT_HTTPS from ConfigService or environment and convert to boolean.
     
     Args:
-        default: Default value if env var is not set. If None, returns None.
+        default: Default value if not set. If None, returns None.
         
     Returns:
         Boolean value or None if not set and no default provided.
     """
-    https_str = os.getenv("QDRANT_HTTPS")
+    config_service = _get_config_service()
+    https_str = config_service.get("QDRANT_HTTPS") or os.getenv("QDRANT_HTTPS")
     if https_str is None:
         return default
     return https_str.lower() == "true"

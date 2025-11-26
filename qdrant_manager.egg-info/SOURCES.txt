@@ -14,6 +14,8 @@ qdrant_distributed/client/http_client.py
 qdrant_distributed/client/qdrant_client.py
 qdrant_distributed/interface/__init__.py
 qdrant_distributed/interface/app.py
+qdrant_distributed/interface/app_old.py
+qdrant_distributed/interface/app_refactored.py
 qdrant_distributed/interface/launcher.py
 qdrant_distributed/models/__init__.py
 qdrant_distributed/models/cluster.py
@@ -27,6 +29,7 @@ qdrant_distributed/scripts/__init__.py
 qdrant_distributed/scripts/scheduler.py
 qdrant_distributed/services/__init__.py
 qdrant_distributed/services/cluster_service.py
+qdrant_distributed/services/config_service.py
 qdrant_distributed/services/mongo_service.py
 qdrant_distributed/services/mysql_service.py
 qdrant_distributed/services/shard_service.py
