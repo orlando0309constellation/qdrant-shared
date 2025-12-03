@@ -15,11 +15,12 @@ from qdrant_distributed.interface.widgets.shard_tree import ShardTree
 class OutputPanel(ttk.Frame):
     """Output panel for displaying results and logs."""
     
-    def __init__(self, parent, app_state: AppState):
+    def __init__(self, parent, app_state: AppState, status_callback=None):
         super().__init__(parent, padding="10")
         self.pack(fill=tk.BOTH, expand=True)
         
         self.app_state = app_state
+        self.status_callback = status_callback
         
         # Create output frame
         output_frame = ttk.LabelFrame(self, text="Output & Results", padding="10")
@@ -75,6 +76,9 @@ class OutputPanel(ttk.Frame):
         # Setup column sorting
         for col in ("Peer ID", "Peer URI", "Shard ID", "Points", "State"):
             self.shard_tree.heading(col, command=lambda c=col: self.shard_tree.sort_by_column(c))
+        
+        # Bind double-click to copy Peer ID
+        self.shard_tree.bind("<Double-1>", self._on_tree_double_click)
         
         # Grid layout
         self.shard_tree.grid(row=0, column=0, sticky="nsew")
@@ -190,4 +194,28 @@ class OutputPanel(ttk.Frame):
             
             with open(filename, 'w') as f:
                 json.dump(data, f, indent=2)
+    
+    def _on_tree_double_click(self, event):
+        """Handle double-click on treeview to copy Peer ID."""
+        # Get the item under the cursor
+        item = self.shard_tree.identify_row(event.y)
+        if not item:
+            return
+        
+        # Get the column under the cursor
+        column = self.shard_tree.identify_column(event.x)
+        
+        # Check if it's the Peer ID column (column index 1, but treeview uses #1, #2, etc.)
+        if column == "#1":  # Peer ID is the first column
+            # Get the Peer ID value
+            peer_id = self.shard_tree.set(item, "Peer ID")
+            if peer_id:
+                # Get root window from parent hierarchy
+                root = self.winfo_toplevel()
+                # Copy to clipboard
+                root.clipboard_clear()
+                root.clipboard_append(str(peer_id))
+                # Update status bar at the bottom
+                if self.status_callback:
+                    self.status_callback(f"✓ Copied Peer ID {peer_id} to clipboard")
 

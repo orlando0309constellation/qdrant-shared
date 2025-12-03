@@ -16,6 +16,7 @@ class ClusterInfo:
     current_peer_id: Optional[int]
     peers: Dict[int, PeerInfo]
     status: str = "unknown"
+    message_send_failures: Dict[str, Dict[str, any]] = None
     
     @classmethod
     def from_dict(cls, data: dict) -> "ClusterInfo":
@@ -32,10 +33,16 @@ class ClusterInfo:
         if current_peer_id is not None:
             current_peer_id = int(current_peer_id)
         
+        # Extract message_send_failures if present
+        message_send_failures = result.get("message_send_failures", {})
+        if not message_send_failures:
+            message_send_failures = None
+        
         return cls(
             current_peer_id=current_peer_id,
             peers=peers,
-            status=result.get("status", "unknown")
+            status=result.get("status", "unknown"),
+            message_send_failures=message_send_failures
         )
     
     def get_peer_count(self) -> int:

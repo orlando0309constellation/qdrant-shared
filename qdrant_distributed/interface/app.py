@@ -23,6 +23,7 @@ from qdrant_distributed.interface.controllers.operation_controller import Operat
 from qdrant_distributed.interface.views.config_dialog import ConfigDialog
 from qdrant_distributed.interface.views.control_panel import ControlPanel
 from qdrant_distributed.interface.views.output_panel import OutputPanel
+from qdrant_distributed.interface.views.migration_dialog import MigrationDialog
 from qdrant_distributed.interface.widgets.status_bar import StatusBar
 
 
@@ -61,10 +62,18 @@ class QdrantManagerApp:
         config_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Configuration", menu=config_menu)
         config_menu.add_command(label="Settings...", command=self.open_config_dialog)
+        
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Tools", menu=tools_menu)
+        tools_menu.add_command(label="Migration...", command=self.open_migration_dialog)
     
     def open_config_dialog(self):
         """Open the configuration dialog."""
         ConfigDialog(self.root, self.app_state, self.service_controller)
+    
+    def open_migration_dialog(self):
+        """Open the migration dialog."""
+        MigrationDialog(self.root)
     
     def setup_ui(self):
         """Setup the main user interface."""
@@ -94,7 +103,8 @@ class QdrantManagerApp:
         
         # Create views
         self.control_panel = ControlPanel(left_panel, self.app_state, self.operation_controller)
-        self.output_panel = OutputPanel(right_panel, self.app_state)
+        self.output_panel = OutputPanel(right_panel, self.app_state, 
+                                       status_callback=lambda text: self.status_bar.set_text(text))
         
         # Status Bar
         self.status_bar = StatusBar(self.root)
@@ -134,6 +144,7 @@ class QdrantManagerApp:
         self.operation_controller.register_callback("display_shards", self._on_display_shards)
         self.operation_controller.register_callback("error", self._on_error)
         self.operation_controller.register_callback("get_selected_shards", self._get_selected_shards)
+        self.operation_controller.register_callback("show_error_dialog", self._on_show_error_dialog)
     
     def _on_operation_start(self):
         """Handle operation start event."""
@@ -169,6 +180,10 @@ class QdrantManagerApp:
     def _on_error(self, error_msg: str):
         """Handle error event."""
         messagebox.showerror("Operation Failed", error_msg)
+    
+    def _on_show_error_dialog(self, title: str, message: str):
+        """Handle show error dialog event."""
+        messagebox.showerror(title, message, parent=self.root)
     
     def _get_selected_shards(self, from_peer: int) -> List[int]:
         """Get selected shard IDs from treeview."""

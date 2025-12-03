@@ -693,28 +693,35 @@ class QdrantManagerApp:
         """Update UI based on selected operation."""
         operation = self.operation_var.get()
         
-        # Uncheck all option checkboxes when operation changes
-        self.save_var.set(False)
-        self.latest_var.set(False)
-        self.last_mongo_var.set(False)
-        
         # Clear dynamic parameters
         for widget in self.params_frame.winfo_children():
             widget.pack_forget()
-            
-        # Reset option states
-        self.latest_check.config(state=tk.NORMAL)
-        self.last_mysql_check.config(state=tk.NORMAL)
         
+        # Enable/disable options based on operation type
+        # --save: Available for all operations
+        self.save_check.config(state=tk.NORMAL)
+        
+        # --latest: Only for move and replicate
+        if operation in ["move", "replicate"]:
+            self.latest_check.config(state=tk.NORMAL)
+        else:
+            self.latest_check.config(state=tk.DISABLED)
+            self.latest_var.set(False)
+        
+        # -ml (Load from MySQL): Only for list
+        if operation == "list":
+            self.last_mysql_check.config(state=tk.NORMAL)
+        else:
+            self.last_mysql_check.config(state=tk.DISABLED)
+            self.last_mongo_var.set(False)
+        
+        # Show relevant parameter frames based on operation
         if operation == "list":
             # No extra parameters needed
-            self.latest_check.config(state=tk.DISABLED)
-            
+            pass
         elif operation in ["move", "replicate"]:
             self.peer_frame.pack(fill=tk.X, pady=5)
             self.method_frame.pack(fill=tk.X, pady=5)
-            self.last_mysql_check.config(state=tk.DISABLED)
-            
         elif operation == "abort":
             self.peer_frame.pack(fill=tk.X, pady=5)
             self.shard_frame.pack(fill=tk.X, pady=5)

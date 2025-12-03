@@ -69,12 +69,17 @@ class ControlPanel(ttk.Frame):
         options_frame = ttk.LabelFrame(self, text="Options", padding="12")
         options_frame.pack(fill=tk.X, pady=(0, 12))
         
-        ttk.Checkbutton(options_frame, text="Save to MySQL (--save)", 
-                       variable=self.app_state.save_var).pack(anchor=tk.W, pady=3)
-        ttk.Checkbutton(options_frame, text="Use latest from MySQL (--latest)", 
-                       variable=self.app_state.latest_var).pack(anchor=tk.W, pady=3)
-        ttk.Checkbutton(options_frame, text="Load from MySQL (-ml)", 
-                       variable=self.app_state.last_mongo_var).pack(anchor=tk.W, pady=3)
+        self.save_checkbox = ttk.Checkbutton(options_frame, text="Save to MySQL (--save)", 
+                       variable=self.app_state.save_var)
+        self.save_checkbox.pack(anchor=tk.W, pady=3)
+        
+        self.latest_checkbox = ttk.Checkbutton(options_frame, text="Use latest from MySQL (--latest)", 
+                       variable=self.app_state.latest_var)
+        self.latest_checkbox.pack(anchor=tk.W, pady=3)
+        
+        self.last_mongo_checkbox = ttk.Checkbutton(options_frame, text="Load from MySQL (-ml)", 
+                       variable=self.app_state.last_mongo_var)
+        self.last_mongo_checkbox.pack(anchor=tk.W, pady=3)
         
         # Execute Button
         self.execute_button = ttk.Button(self, text="▶ Execute Operation", 
@@ -119,27 +124,37 @@ class ControlPanel(ttk.Frame):
         """Update UI based on selected operation."""
         operation = self.app_state.operation_var.get()
         
-        # Clear all option checkboxes
-        self.app_state.save_var.set(False)
-        self.app_state.latest_var.set(False)
-        self.app_state.last_mongo_var.set(False)
-        
         # Hide all parameter frames
         self.peer_frame.pack_forget()
         self.shard_frame.pack_forget()
         self.method_frame.pack_forget()
         
-        # Show relevant frames based on operation
+        # Enable/disable and clear options based on operation type
+        # --save: Available for all operations
+        self.save_checkbox.config(state="normal")
+        
+        # --latest: Only for move and replicate
+        if operation in ["move", "replicate"]:
+            self.latest_checkbox.config(state="normal")
+        else:
+            self.latest_checkbox.config(state="disabled")
+            self.app_state.latest_var.set(False)
+        
+        # -ml (Load from MySQL): Only for list
+        if operation == "list":
+            self.last_mongo_checkbox.config(state="normal")
+        else:
+            self.last_mongo_checkbox.config(state="disabled")
+            self.app_state.last_mongo_var.set(False)
+        
+        # Show relevant parameter frames based on operation
         if operation in ["move", "replicate"]:
             self.peer_frame.pack(fill=tk.X, pady=(0, 8))
             self.method_frame.pack(fill=tk.X)
-            self.app_state.latest_var.set(False)  # Enable latest option
         elif operation == "abort":
             self.peer_frame.pack(fill=tk.X, pady=(0, 8))
             self.shard_frame.pack(fill=tk.X)
-        elif operation == "list":
-            self.app_state.save_var.set(False)  # Enable save option
-            self.app_state.last_mongo_var.set(False)  # Enable MySQL load option
+        # list operation doesn't need parameter frames
     
     def _bind_events(self):
         """Bind UI events."""

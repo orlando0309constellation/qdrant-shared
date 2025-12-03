@@ -5,7 +5,7 @@ Service Controller - Manages service initialization and lifecycle.
 from typing import Optional
 from qdrant_distributed import ShardOperations, ClusterOperations
 from qdrant_distributed.client.qdrant_client import QdrantClientManager
-from qdrant_distributed.config import MySQLManager, get_qdrant_url, get_qdrant_port, get_qdrant_api_key
+from qdrant_distributed.config import MySQLManager, get_qdrant_url, get_qdrant_port, get_qdrant_api_key, get_qdrant_https
 from qdrant_distributed.config import get_mysql_host, get_mysql_port, get_mysql_user, get_mysql_password, get_mysql_database
 from qdrant_distributed.services.mysql_service import MySQLService
 
@@ -25,7 +25,8 @@ class ServiceController:
             QdrantClientManager.initialize(
                 url=get_qdrant_url(),
                 port=get_qdrant_port(),
-                api_key=get_qdrant_api_key()
+                api_key=get_qdrant_api_key(),
+                https=get_qdrant_https()
             )
             self.shard_ops = ShardOperations()
             self.cluster_ops = ClusterOperations()
@@ -58,4 +59,17 @@ class ServiceController:
     def get_mysql_service(self) -> Optional[MySQLService]:
         """Get MySQL service instance."""
         return self.mysql_service
+    
+    def reset_qdrant(self):
+        """
+        Reset Qdrant clients and operations to allow re-initialization with new configuration.
+        Should be called when Qdrant configuration changes.
+        """
+        # Reset the client manager to allow re-initialization
+        QdrantClientManager.reset()
+        
+        # Clear operations so they will be recreated with new clients
+        self.shard_ops = None
+        self.cluster_ops = None
+        self.is_initialized = False
 

@@ -206,6 +206,12 @@ class ConfigDialog:
             if not validate_all():
                 return
             
+            # Store old Qdrant config to check if it changed
+            old_qdrant_url = ConfigService.get("QDRANT_URL")
+            old_qdrant_port = ConfigService.get("QDRANT_PORT")
+            old_qdrant_api_key = ConfigService.get("QDRANT_API_KEY")
+            old_qdrant_https = ConfigService.get("QDRANT_HTTPS")
+            
             self.app_state.update_replicate_factor(int(replicate_var.get()))
             
             ConfigService.set("QDRANT_URL", qdrant_url_var.get())
@@ -219,7 +225,21 @@ class ConfigDialog:
             ConfigService.set("MYSQL_PASSWORD", mysql_password_var.get())
             ConfigService.set("MYSQL_DATABASE", mysql_database_var.get())
             
-            messagebox.showinfo("Success", "Configuration saved successfully!\n\nNote: Qdrant and MySQL connections will use new settings on next initialization.")
+            # Check if Qdrant configuration changed
+            qdrant_config_changed = (
+                old_qdrant_url != qdrant_url_var.get() or
+                old_qdrant_port != qdrant_port_var.get() or
+                old_qdrant_api_key != qdrant_api_key_var.get() or
+                old_qdrant_https != ("true" if qdrant_https_var.get() else "false")
+            )
+            
+            # Reset Qdrant clients if configuration changed
+            if qdrant_config_changed:
+                self.service_controller.reset_qdrant()
+            
+            messagebox.showinfo("Success", "Configuration saved successfully!\n\n" + 
+                              ("Qdrant connections have been reset and will use new settings immediately." if qdrant_config_changed 
+                               else "Qdrant and MySQL connections will use new settings on next initialization."))
             self.window.destroy()
         
         def cancel_config():

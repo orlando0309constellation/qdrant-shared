@@ -2,10 +2,13 @@
 Service for cluster-related operations.
 """
 
+import asyncio
 from typing import Dict, List, Optional
 
 from qdrant_distributed.client import ClusterClient
+from qdrant_distributed.client.qdrant_client import QdrantClientManager
 from qdrant_distributed.models import ClusterInfo, PeerInfo, ShardInfo
+from qdrant_distributed.services.migration_service import ensure_collection_exists
 
 
 class ClusterService:
@@ -52,6 +55,39 @@ class ClusterService:
             Dictionary mapping peer_id to list of ShardInfo objects
         """
         self.cluster_client._validate_collection_name(collection_name)
+        
+        # Ensure collection exists before querying cluster info
+        try:
+            async_client = QdrantClientManager.get_async_client()
+            if async_client:
+                # Run async function in sync context
+                try:
+                    # Try to get existing event loop
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is running, we can't use run_until_complete
+                        # Create collection in a new thread with new event loop
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(
+                                asyncio.run,
+                                ensure_collection_exists(async_client, collection_name, source_client=None)
+                            )
+                            future.result(timeout=30)
+                    else:
+                        # Loop exists but not running, use it
+                        loop.run_until_complete(
+                            ensure_collection_exists(async_client, collection_name, source_client=None)
+                        )
+                except RuntimeError:
+                    # No event loop, create one
+                    asyncio.run(
+                        ensure_collection_exists(async_client, collection_name, source_client=None)
+                    )
+        except Exception as e:
+            # Log but don't fail - collection might already exist or creation might fail
+            # The actual cluster query will show the real error if collection doesn't exist
+            print(f"⚠️  Warning: Could not ensure collection exists: {e}")
         
         # Get all peers
         peers, current_peer_id = self.cluster_client.get_peers(timeout)

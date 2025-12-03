@@ -128,6 +128,31 @@ class OperationController:
             
             cluster_client = ClusterClient()
             peers_dict, _ = cluster_client.get_peers(timeout)
+            
+            # Check for message_send_failures in cluster info
+            cluster_info_raw = cluster_client.get_cluster_info(timeout)
+            result = cluster_info_raw.get("result", {})
+            message_send_failures = result.get("message_send_failures", {})
+            
+            if message_send_failures:
+                # Build error message
+                error_lines = ["⚠️ Cluster Communication Failures Detected:\n"]
+                for uri, failure_info in message_send_failures.items():
+                    count = failure_info.get("count", 0)
+                    latest_error = failure_info.get("latest_error", "Unknown error")
+                    timestamp = failure_info.get("latest_error_timestamp", "Unknown time")
+                    error_lines.append(f"  {uri}:")
+                    error_lines.append(f"    Failures: {count}")
+                    error_lines.append(f"    Latest Error: {latest_error}")
+                    error_lines.append(f"    Timestamp: {timestamp}\n")
+                
+                error_msg = "\n".join(error_lines)
+                self._emit("log_output", f"\n{error_msg}", "error")
+                # Show error dialog
+                self._emit("show_error_dialog", 
+                          "Cluster Communication Failures", 
+                          error_msg)
+            
             peer_uris = {int(pid): peer_data.get("uri", "") for pid, peer_data in peers_dict.items()}
             self._emit("progress_update", 70, "Processing results...")
             
@@ -175,6 +200,30 @@ class OperationController:
             self._emit("log_output", "📋 Getting shard information from peers...", "info")
             cluster_ops = self.service_controller.get_cluster_ops()
             all_peer_shards = cluster_ops.list_all_shards(collection_name=collection, timeout=timeout)
+            
+            # Check for message_send_failures
+            cluster_client = ClusterClient()
+            cluster_info_raw = cluster_client.get_cluster_info(timeout)
+            result = cluster_info_raw.get("result", {})
+            message_send_failures = result.get("message_send_failures", {})
+            
+            if message_send_failures:
+                error_lines = ["⚠️ Cluster Communication Failures Detected:\n"]
+                for uri, failure_info in message_send_failures.items():
+                    count = failure_info.get("count", 0)
+                    latest_error = failure_info.get("latest_error", "Unknown error")
+                    timestamp = failure_info.get("latest_error_timestamp", "Unknown time")
+                    error_lines.append(f"  {uri}:")
+                    error_lines.append(f"    Failures: {count}")
+                    error_lines.append(f"    Latest Error: {latest_error}")
+                    error_lines.append(f"    Timestamp: {timestamp}\n")
+                
+                error_msg = "\n".join(error_lines)
+                self._emit("log_output", f"\n{error_msg}", "error")
+                self._emit("show_error_dialog", 
+                          "Cluster Communication Failures", 
+                          error_msg)
+            
             self._emit("log_output", "")
             self._emit("progress_update", 50)
         
@@ -257,6 +306,30 @@ class OperationController:
             self._emit("progress_update", 40, "Connecting to cluster...")
             cluster_ops = self.service_controller.get_cluster_ops()
             all_peer_shards = cluster_ops.list_all_shards(collection_name=collection, timeout=timeout)
+            
+            # Check for message_send_failures
+            cluster_client = ClusterClient()
+            cluster_info_raw = cluster_client.get_cluster_info(timeout)
+            result = cluster_info_raw.get("result", {})
+            message_send_failures = result.get("message_send_failures", {})
+            
+            if message_send_failures:
+                error_lines = ["⚠️ Cluster Communication Failures Detected:\n"]
+                for uri, failure_info in message_send_failures.items():
+                    count = failure_info.get("count", 0)
+                    latest_error = failure_info.get("latest_error", "Unknown error")
+                    timestamp = failure_info.get("latest_error_timestamp", "Unknown time")
+                    error_lines.append(f"  {uri}:")
+                    error_lines.append(f"    Failures: {count}")
+                    error_lines.append(f"    Latest Error: {latest_error}")
+                    error_lines.append(f"    Timestamp: {timestamp}\n")
+                
+                error_msg = "\n".join(error_lines)
+                self._emit("log_output", f"\n{error_msg}", "error")
+                self._emit("show_error_dialog", 
+                          "Cluster Communication Failures", 
+                          error_msg)
+            
             self._emit("log_output", "")
             self._emit("progress_update", 50, "Validating shards...")
         
@@ -342,7 +415,7 @@ class OperationController:
             peer_info = PeerInfo(
                 peer_id=peer_id,
                 uri=peer_data.get("uri", ""),
-                shards=[shard.shard_id for shard in shards]
+                local_shards=shards
             )
             peer_info_list.append(peer_info)
         return peer_info_list
