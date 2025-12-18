@@ -4,12 +4,17 @@ Launcher script for Qdrant Manager Desktop Application
 """
 
 import sys
+import multiprocessing
 import tkinter as tk
 from qdrant_distributed.interface.app import QdrantManagerApp
 
 
 def main():
     """Launch the desktop application."""
+    # Required for multiprocessing in built applications (PyInstaller, etc.)
+    if sys.platform == 'win32':
+        multiprocessing.freeze_support()
+    
     try:
         root = tk.Tk()
         app = QdrantManagerApp(root)

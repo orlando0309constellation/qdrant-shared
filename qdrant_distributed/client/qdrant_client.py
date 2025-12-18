@@ -30,10 +30,11 @@ class QdrantClientManager:
     @classmethod
     def initialize(
         cls,
-        url: str = qdrant_url,
-        api_key: str = qdrant_api_key,
+        url: str = None,
+        api_key: str = None,
         timeout: int = 3600,
-        port=qdrant_port,
+        port: str = None,
+        https: Optional[bool] = None,
     ) -> None:
         """
         Initialize both sync and async clients.
@@ -41,8 +42,19 @@ class QdrantClientManager:
         """
         if cls._initialized:
             return
+        
+        # Read config dynamically if not provided (allows picking up config changes)
+        if url is None:
+            url = get_qdrant_url()
+        if port is None:
+            port = get_qdrant_port()
+        if api_key is None:
+            api_key = get_qdrant_api_key()
+        if https is None:
+            https = get_qdrant_https()
+        
         print(
-            f"Initializing Qdrant clients with url: {url}, api_key: xxx, timeout: {timeout}, port: {port}"
+            f"Initializing Qdrant clients with url: {url}, api_key: xxx, timeout: {timeout}, port: {port}, https: {https}"
         )
         # Force plaintext HTTP to match current HAProxy config (no TLS termination yet).
         # Avoids SSL WRONG_VERSION_NUMBER when client attempts TLS against HTTP endpoint.
@@ -98,3 +110,24 @@ class QdrantClientManager:
     def is_initialized(cls) -> bool:
         """Check if the client manager is initialized."""
         return cls._initialized
+    
+    @classmethod
+    def reset(cls) -> None:
+        """
+        Reset the client manager by closing existing clients and clearing initialization state.
+        This allows re-initialization with new configuration.
+        Should be called when configuration changes.
+        """
+        if cls._sync_client:
+            try:
+                cls._sync_client.close()
+            except Exception:
+                pass  # Ignore errors during cleanup
+            cls._sync_client = None
+        
+        if cls._async_client:
+            # Note: We can't await in a sync method, so we'll just clear the reference
+            # The async client will be properly closed on next async close() call
+            cls._async_client = None
+        
+        cls._initialized = False
