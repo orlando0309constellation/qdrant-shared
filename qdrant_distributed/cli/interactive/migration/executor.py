@@ -93,6 +93,7 @@ class MigrationExecutor:
             total_collections = 0
             current_collection = None
             collections_seen = set()
+            current_collection_index = 0  # Track which collection we're currently processing (1-based)
             
             def format_elapsed_time(seconds: float) -> str:
                 """Format elapsed time in human-readable form (no seconds display)."""
@@ -144,14 +145,19 @@ class MigrationExecutor:
                               migrated: int = 0, total: int = 0, current_batch: int = 0, 
                               state: str = "", total_batches: int = 0):
                 """Status callback for migration - user-friendly display."""
-                nonlocal processed_collections, total_collections, current_collection, collections_seen
+                nonlocal processed_collections, total_collections, current_collection, collections_seen, current_collection_index
                 
                 # Track new collections and initialize timing
-                if collection_id not in collection_start_times:
+                is_new_collection = collection_id not in collection_start_times
+                if is_new_collection:
                     collection_start_times[collection_id] = datetime.now(timezone.utc)
                     if collection_id not in collections_seen:
                         collections_seen.add(collection_id)
                     current_collection = collection_id
+                
+                # Increment current collection index ONLY when we START processing a new collection
+                if status == "Starting" and is_new_collection:
+                    current_collection_index += 1
                 
                 # Ensure total_collections always matches the number of unique collections seen
                 total_collections = len(collections_seen)
@@ -163,22 +169,20 @@ class MigrationExecutor:
                 coll_elapsed_str = format_elapsed_time(coll_elapsed)
                 total_elapsed_str = format_elapsed_time(total_elapsed)
                 
-                # Calculate current collection index (1-based for display)
-                # This is the number of unique collections we've seen so far
-                current_collection_num = len(collections_seen)
-                
                 # Display based on status
                 if status == "Starting":
                     self.console.print()
-                    # Show which collection we're starting (current number / total discovered so far)
-                    self.console.print(f"[bold cyan]▶ Collection {current_collection_num}/{total_collections if total_collections > 0 else '?'}: {collection_id}[/bold cyan]")
-                elif status == "Processing":
-                    # Show progress: current collection number / total collections
-                    # Use total_collections if known, otherwise show current number
+                    # Show which collection we're starting (current index / total)
                     if total_collections > 0:
-                        progress_info = f"[{current_collection_num}/{total_collections}]"
+                        self.console.print(f"[bold cyan]▶ Collection {current_collection_index}/{total_collections}: {collection_id}[/bold cyan]")
                     else:
-                        progress_info = f"[{current_collection_num}/?]"
+                        self.console.print(f"[bold cyan]▶ Collection {current_collection_index}/?: {collection_id}[/bold cyan]")
+                elif status == "Processing":
+                    # Show progress: current collection index / total collections
+                    if total_collections > 0:
+                        progress_info = f"[{current_collection_index}/{total_collections}]"
+                    else:
+                        progress_info = f"[{current_collection_index}/?]"
                     
                     # Build status line
                     parts = [progress_info, collection_id]
@@ -196,7 +200,7 @@ class MigrationExecutor:
                     # Only increment when actually completed
                     processed_collections += 1
                     self.console.print()  # Clear the progress line
-                    # Show processed count (completed) / total discovered
+                    # Show processed count (completed) / total
                     if total_collections > 0:
                         self.console.print(f"[bold green]✓ [{processed_collections}/{total_collections}] {collection_id}: Completed ({coll_elapsed_str})[/bold green]")
                     else:
@@ -205,7 +209,7 @@ class MigrationExecutor:
                     # Only increment when actually failed
                     processed_collections += 1
                     self.console.print()  # Clear the progress line
-                    # Show processed count (failed) / total discovered
+                    # Show processed count (failed) / total
                     if total_collections > 0:
                         self.console.print(f"[bold red]✗ [{processed_collections}/{total_collections}] {collection_id}: Failed after {coll_elapsed_str}[/bold red]")
                     else:
