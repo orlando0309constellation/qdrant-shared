@@ -3,7 +3,8 @@ SQLite configuration service for storing application settings.
 """
 
 import sqlite3
-from typing import Optional
+import json
+from typing import Optional, List, Dict
 from pathlib import Path
 
 
@@ -185,4 +186,48 @@ class ConfigService:
         if cls._connection is not None:
             cls._connection.close()
             cls._connection = None
+    
+    @classmethod
+    def get_snapshot_urls(cls) -> List[Dict[str, any]]:
+        """
+        Get snapshot URLs configuration as a list of dictionaries.
+        
+        Returns:
+            List of dictionaries with keys: url, port, https
+            Each dict has: {"url": str, "port": str, "https": bool}
+        """
+        json_str = cls.get("SNAPSHOT_URLS")
+        if json_str is None:
+            return []
+        try:
+            urls = json.loads(json_str)
+            # Ensure https is boolean
+            for url_config in urls:
+                if isinstance(url_config.get("https"), str):
+                    url_config["https"] = url_config["https"].lower() == "true"
+            return urls
+        except (json.JSONDecodeError, TypeError):
+            return []
+    
+    @classmethod
+    def set_snapshot_urls(cls, urls: List[Dict[str, any]]):
+        """
+        Set snapshot URLs configuration.
+        
+        Args:
+            urls: List of dictionaries with keys: url, port, https
+                  Each dict should have: {"url": str, "port": str, "https": bool}
+        """
+        # Validate and normalize the data
+        normalized_urls = []
+        for url_config in urls:
+            normalized = {
+                "url": str(url_config.get("url", "")),
+                "port": str(url_config.get("port", "")),
+                "https": bool(url_config.get("https", False))
+            }
+            normalized_urls.append(normalized)
+        
+        json_str = json.dumps(normalized_urls)
+        cls.set("SNAPSHOT_URLS", json_str)
 

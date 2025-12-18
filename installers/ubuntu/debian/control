@@ -1,0 +1,24 @@
+Source: qdrant-manager
+Section: utils
+Priority: optional
+Maintainer: Qdrant Manager Contributors <support@qdrant.tech>
+Build-Depends: debhelper (>= 11), python3 (>= 3.11), python3-pip, python3-setuptools
+Standards-Version: 4.1.3
+Homepage: https://github.com/qdrant/qdrant-manager
+
+Package: qdrant-manager
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3 (>= 3.11), libc6 (>= 2.17)
+Description: Qdrant Cluster Manager - Desktop GUI for managing Qdrant distributed clusters
+ Qdrant Manager is a desktop application for managing Qdrant distributed
+ cluster operations including shard transfers, replication, and cluster
+ monitoring. It provides both a graphical user interface and command-line
+ tools for cluster management.
+ .
+ Features:
+  - Visual cluster management interface
+  - Shard transfer and replication operations
+  - Cluster monitoring and status display
+  - MySQL integration for state tracking
+  - Snapshot management
+

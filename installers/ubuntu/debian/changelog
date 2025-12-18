@@ -1,0 +1,9 @@
+qdrant-manager (0.1.0-1) unstable; urgency=medium
+
+  * Initial release of Qdrant Manager
+  * Desktop GUI for Qdrant cluster management
+  * Shard transfer and replication operations
+  * Cluster monitoring and status display
+
+ -- Qdrant Manager Contributors <support@qdrant.tech>  Mon, 01 Jan 2025 12:00:00 +0000
+

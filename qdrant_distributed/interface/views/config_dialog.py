@@ -174,6 +174,101 @@ class ConfigDialog:
                                        ))
         mysql_test_button.pack(side=tk.LEFT)
         
+        # Tab 4: Snapshot Configuration
+        snapshot_tab = ttk.Frame(notebook, padding="15")
+        notebook.add(snapshot_tab, text="Snapshot Configuration")
+        
+        snapshot_frame = ttk.LabelFrame(snapshot_tab, text="Snapshot URLs Configuration", padding="15")
+        snapshot_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        desc_label = ttk.Label(snapshot_frame, 
+                              text="Configure one or more Qdrant URLs for snapshot operations.\n"
+                                   "Each URL will be available in the Tools > Create snapshots menu.",
+                              wraplength=580, justify=tk.LEFT)
+        desc_label.pack(anchor=tk.W, pady=(0, 15))
+        
+        # Scrollable frame for snapshot URLs list
+        list_container = ttk.Frame(snapshot_frame)
+        list_container.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Canvas and scrollbar for scrollable list
+        canvas = tk.Canvas(list_container, height=200)
+        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Store snapshot URL entries
+        snapshot_entries = []
+        
+        def add_snapshot_entry(url="", port="6333", https=False):
+            """Add a new snapshot URL entry row."""
+            entry_frame = ttk.Frame(scrollable_frame)
+            entry_frame.pack(fill=tk.X, pady=2)
+            
+            url_var = tk.StringVar(value=url)
+            port_var = tk.StringVar(value=port)
+            https_var = tk.BooleanVar(value=https)
+            
+            ttk.Entry(entry_frame, textvariable=url_var, width=25).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Entry(entry_frame, textvariable=port_var, width=10).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Checkbutton(entry_frame, text="HTTPS", variable=https_var).pack(side=tk.LEFT, padx=(0, 5))
+            
+            def remove_entry():
+                entry_frame.destroy()
+                snapshot_entries.remove(entry_data)
+                canvas.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            
+            remove_btn = ttk.Button(entry_frame, text="Remove", command=remove_entry, width=10)
+            remove_btn.pack(side=tk.RIGHT)
+            
+            entry_data = {
+                "frame": entry_frame,
+                "url_var": url_var,
+                "port_var": port_var,
+                "https_var": https_var
+            }
+            snapshot_entries.append(entry_data)
+            canvas.update_idletasks()
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        def add_new_entry():
+            """Add a new empty entry."""
+            add_snapshot_entry()
+            canvas.update_idletasks()
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        # Load existing snapshot URLs
+        existing_urls = ConfigService.get_snapshot_urls()
+        for url_config in existing_urls:
+            add_snapshot_entry(
+                url=url_config.get("url", ""),
+                port=url_config.get("port", "6333"),
+                https=url_config.get("https", False)
+            )
+        
+        # If no existing URLs, add one empty entry
+        if not existing_urls:
+            add_snapshot_entry()
+        
+        # Add button
+        add_button_frame = ttk.Frame(snapshot_frame)
+        add_button_frame.pack(fill=tk.X)
+        ttk.Button(add_button_frame, text="Add URL", command=add_new_entry).pack(side=tk.LEFT)
+        
+        # Store snapshot_entries for use in save_config
+        snapshot_entries_ref = snapshot_entries
+        
         # Buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X)
@@ -200,6 +295,18 @@ class ConfigDialog:
                 messagebox.showerror("Invalid Value", "Qdrant port must be an integer")
                 return False
             
+            # Validate snapshot URLs
+            for entry_data in snapshot_entries_ref:
+                url = entry_data["url_var"].get().strip()
+                port = entry_data["port_var"].get().strip()
+                
+                if url and port:
+                    try:
+                        int(port)
+                    except ValueError:
+                        messagebox.showerror("Invalid Value", f"Snapshot URL port must be an integer: {url}")
+                        return False
+            
             return True
         
         def save_config():
@@ -224,6 +331,21 @@ class ConfigDialog:
             ConfigService.set("MYSQL_USER", mysql_user_var.get())
             ConfigService.set("MYSQL_PASSWORD", mysql_password_var.get())
             ConfigService.set("MYSQL_DATABASE", mysql_database_var.get())
+            
+            # Save snapshot URLs
+            snapshot_urls = []
+            for entry_data in snapshot_entries_ref:
+                url = entry_data["url_var"].get().strip()
+                port = entry_data["port_var"].get().strip()
+                https = entry_data["https_var"].get()
+                
+                if url and port:  # Only save non-empty entries
+                    snapshot_urls.append({
+                        "url": url,
+                        "port": port,
+                        "https": https
+                    })
+            ConfigService.set_snapshot_urls(snapshot_urls)
             
             # Check if Qdrant configuration changed
             qdrant_config_changed = (

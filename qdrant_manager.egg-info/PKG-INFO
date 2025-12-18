@@ -8,6 +8,7 @@ Requires-Dist: python-dotenv>=1.2.1
 Requires-Dist: qdrant-client>=1.16.0
 Requires-Dist: requests>=2.31.0
 Requires-Dist: mysql-connector-python>=8.2.0
+Requires-Dist: rich>=13.0.0
 Provides-Extra: mongodb
 Requires-Dist: pymongo>=4.15.4; extra == "mongodb"
 Provides-Extra: mysql

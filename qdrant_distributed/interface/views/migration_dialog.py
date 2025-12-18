@@ -5,6 +5,7 @@ Migration Dialog View - Dialog window for Qdrant migration operations.
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
+import time
 from qdrant_client import QdrantClient
 import mysql.connector
 
@@ -26,6 +27,11 @@ class MigrationResultsDialog:
         self.parent = parent
         self.migration_controller = migration_controller
         self._is_closing = False
+        
+        # Timer-related variables
+        self._start_time = None
+        self._timer_running = False
+        self._timer_job = None
         
         self.window = tk.Toplevel(parent)
         self.window.title("Migration Results & Logs")
@@ -53,10 +59,26 @@ class MigrationResultsDialog:
         main_frame = ttk.Frame(self.window, padding="5")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Title
-        title_label = ttk.Label(main_frame, text="📊 Migration Results & Logs", 
+        # Header frame with title and elapsed time
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Title on the left
+        title_label = ttk.Label(header_frame, text="📊 Migration Results & Logs", 
                                font=("Segoe UI", 12, "bold"))
-        title_label.pack(pady=(0, 5))
+        title_label.pack(side=tk.LEFT)
+        
+        # Elapsed time on the right
+        self._elapsed_frame = ttk.Frame(header_frame)
+        self._elapsed_frame.pack(side=tk.RIGHT)
+        
+        ttk.Label(self._elapsed_frame, text="⏱️", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 3))
+        self._elapsed_label = ttk.Label(self._elapsed_frame, text="00:00:00", 
+                                        font=("Consolas", 11, "bold"), foreground="#2196F3")
+        self._elapsed_label.pack(side=tk.LEFT)
+        self._elapsed_status = ttk.Label(self._elapsed_frame, text="", 
+                                         font=("Segoe UI", 9), foreground="gray")
+        self._elapsed_status.pack(side=tk.LEFT, padx=(8, 0))
         
         output_frame = ttk.LabelFrame(main_frame, text="Output & Logs", padding="5")
         output_frame.pack(fill=tk.BOTH, expand=True)
@@ -177,6 +199,9 @@ class MigrationResultsDialog:
                 self.collection_items.clear()
                 self.collection_batch_info.clear()
                 self.current_processing_collection = None
+                
+                # Start elapsed time timer
+                self._start_timer()
             except tk.TclError:
                 pass
     
@@ -186,6 +211,9 @@ class MigrationResultsDialog:
             try:
                 self.progress_bar.update(100, status="Migration completed!")
                 self.window.after(500, self.progress_bar.hide)
+                
+                # Stop elapsed time timer and show final time
+                self._stop_timer(completed=True)
             except tk.TclError:
                 pass
     
@@ -372,9 +400,76 @@ class MigrationResultsDialog:
         except tk.TclError:
             pass
     
+    # =========================================================================
+    # Elapsed Time Timer
+    # =========================================================================
+    
+    def _format_elapsed_time(self, seconds: float) -> str:
+        """Format seconds into HH:MM:SS string."""
+        hours, remainder = divmod(int(seconds), 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    
+    def _start_timer(self):
+        """Start the elapsed time timer."""
+        self._start_time = time.time()
+        self._timer_running = True
+        self._elapsed_status.config(text="Running...", foreground="#4CAF50")
+        self._elapsed_label.config(foreground="#2196F3")
+        self._update_elapsed_time()
+    
+    def _stop_timer(self, completed: bool = False):
+        """Stop the elapsed time timer."""
+        self._timer_running = False
+        
+        # Cancel scheduled update
+        if self._timer_job:
+            try:
+                self.window.after_cancel(self._timer_job)
+            except tk.TclError:
+                pass
+            self._timer_job = None
+        
+        # Update status label
+        if self._start_time:
+            elapsed = time.time() - self._start_time
+            final_time = self._format_elapsed_time(elapsed)
+            try:
+                self._elapsed_label.config(text=final_time)
+                if completed:
+                    self._elapsed_status.config(text="✓ Completed", foreground="#4CAF50")
+                    self._elapsed_label.config(foreground="#4CAF50")
+                else:
+                    self._elapsed_status.config(text="Stopped", foreground="#FF9800")
+                    self._elapsed_label.config(foreground="#FF9800")
+            except tk.TclError:
+                pass
+    
+    def _update_elapsed_time(self):
+        """Update the elapsed time display."""
+        if not self._timer_running or self._is_closing:
+            return
+        
+        try:
+            if not self.window.winfo_exists():
+                return
+            
+            if self._start_time:
+                elapsed = time.time() - self._start_time
+                time_str = self._format_elapsed_time(elapsed)
+                self._elapsed_label.config(text=time_str)
+            
+            # Schedule next update (every 1 second)
+            self._timer_job = self.window.after(1000, self._update_elapsed_time)
+        except tk.TclError:
+            self._timer_running = False
+    
     def _on_close(self):
         """Handle window close event."""
         self._is_closing = True
+        
+        # Stop timer
+        self._stop_timer(completed=False)
         
         # Cancel migration if running
         if self.migration_controller.is_running():

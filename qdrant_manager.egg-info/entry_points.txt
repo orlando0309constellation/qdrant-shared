@@ -1,4 +1,5 @@
 [console_scripts]
+qdrant-manager = qdrant_distributed.cli.interactive:main
 qdrant-scheduler = qdrant_distributed.scripts.scheduler:main
 qdrant-shard = main:main
 qdrant-shard-gui = qdrant_distributed.interface.launcher:main

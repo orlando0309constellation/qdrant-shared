@@ -24,6 +24,7 @@ from qdrant_distributed.interface.views.config_dialog import ConfigDialog
 from qdrant_distributed.interface.views.control_panel import ControlPanel
 from qdrant_distributed.interface.views.output_panel import OutputPanel
 from qdrant_distributed.interface.views.migration_dialog import MigrationDialog
+from qdrant_distributed.interface.views.snapshot_dialog import SnapshotDialog
 from qdrant_distributed.interface.widgets.status_bar import StatusBar
 
 
@@ -66,6 +67,7 @@ class QdrantManagerApp:
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Tools", menu=tools_menu)
         tools_menu.add_command(label="Migration...", command=self.open_migration_dialog)
+        tools_menu.add_command(label="Create snapshots...", command=self.open_snapshot_dialog)
     
     def open_config_dialog(self):
         """Open the configuration dialog."""
@@ -74,6 +76,10 @@ class QdrantManagerApp:
     def open_migration_dialog(self):
         """Open the migration dialog."""
         MigrationDialog(self.root)
+    
+    def open_snapshot_dialog(self):
+        """Open the snapshot management dialog."""
+        SnapshotDialog(self.root)
     
     def setup_ui(self):
         """Setup the main user interface."""

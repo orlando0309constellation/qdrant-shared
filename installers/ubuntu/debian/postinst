@@ -1,0 +1,32 @@
+#!/bin/bash
+# postinst script for qdrant-manager
+
+set -e
+
+# Update desktop database
+if [ -x /usr/bin/update-desktop-database ]; then
+    update-desktop-database -q
+fi
+
+# Update icon cache
+if [ -x /usr/bin/gtk-update-icon-cache ]; then
+    gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+fi
+
+# Ask user if they want to launch the application
+if [ "$1" = "configure" ] && [ -n "$2" ]; then
+    # Check if running in a terminal
+    if [ -t 0 ]; then
+        echo ""
+        echo "Qdrant Manager has been successfully installed!"
+        echo ""
+        read -p "Do you want to launch Qdrant Manager now? [Y/n] " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            /usr/bin/qdrant-manager &
+        fi
+    fi
+fi
+
+exit 0
+

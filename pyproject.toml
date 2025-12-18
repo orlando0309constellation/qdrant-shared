@@ -9,6 +9,7 @@ dependencies = [
     "qdrant-client>=1.16.0",
     "requests>=2.31.0",
     "mysql-connector-python>=8.2.0",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
@@ -27,5 +28,6 @@ py-modules = ["main"]
 
 [project.scripts]
 qdrant-shard = "main:main"
+qdrant-manager = "qdrant_distributed.cli.interactive:main"
 qdrant-shard-gui = "qdrant_distributed.interface.launcher:main"
 qdrant-scheduler = "qdrant_distributed.scripts.scheduler:main"

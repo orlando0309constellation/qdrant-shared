@@ -17,41 +17,71 @@ def create_argument_parser(default_collection: str = "shared_vectors_hybrid") ->
         Configured ArgumentParser instance
     """
     parser = argparse.ArgumentParser(
-        description="Qdrant Sharding Operations - Manage shard transfers and cluster operations",
+        description="Qdrant Cluster Manager - Manage shards, snapshots, and cluster operations",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 Examples:
+  # === SHARD OPERATIONS ===
   # List all local shards from each peer
-  python qdrant_sharding.py -list
+  qdrant-shard -ls
 
-  # List shards for a specific collection
-  python qdrant_sharding.py -list --collection my_collection
-
-  # Move all shards from peer 1 to peer 2 (using best method)
-  python qdrant_sharding.py -mv --from-peer 1 --to-peer 2
-
-  # Move all shards with specific method
-  python qdrant_sharding.py -mv --from-peer 1 --to-peer 2 --method snapshot
+  # Move all shards from peer 1 to peer 2
+  qdrant-shard -mv --from-peer 1 --to-peer 2
 
   # Replicate all shards from peer 1 to peer 2
-  python qdrant_sharding.py -rs --from-peer 1 --to-peer 2
+  qdrant-shard -rs --from-peer 1 --to-peer 2
 
-  # Abort an ongoing transfer for a specific shard
-  python qdrant_sharding.py -abort --shard-id 0 --from-peer 1 --to-peer 2
+  # Abort an ongoing transfer
+  qdrant-shard -abort --shard-id 0 --from-peer 1 --to-peer 2
 
-  # With custom timeout
-  python qdrant_sharding.py -mv --from-peer 1 --to-peer 2 --timeout 60
+  # === SNAPSHOT OPERATIONS ===
+  # List snapshots for a collection (using env vars QDRANT_URL, QDRANT_PORT)
+  qdrant-shard --snap-list -c my_collection
+
+  # List snapshots using a specific public host
+  qdrant-shard --snap-list -c my_collection -ph qdrant.example.com:6333
+  qdrant-shard --snap-list -c my_collection -ph qdrant.example.com:443:https
+
+  # List full (cluster) snapshots
+  qdrant-shard --snap-list --full -ph qdrant.example.com:6333
+
+  # Create a collection snapshot
+  qdrant-shard --snap-create -c my_collection -ph qdrant.example.com:6333
+
+  # Create a full cluster snapshot
+  qdrant-shard --snap-create --full
+
+  # Delete a snapshot
+  qdrant-shard --snap-delete -c my_collection --snapshot-name snapshot-123.snapshot
+
+  # Recover a collection from snapshot URL
+  qdrant-shard --snap-recover -c my_collection --location https://server:6333/collections/col/snapshots/snap.snapshot
+
+  # Recover with public host and authentication
+  qdrant-shard --snap-recover -c my_collection -ph target-server:6333 --location https://source-server:6333/... --location-api-key SOURCE_API_KEY
+
+  # Recover with priority
+  qdrant-shard --snap-recover -c my_collection --location https://... --priority snapshot
+
+  # Download a snapshot to local file
+  qdrant-shard --snap-download -c my_collection --snapshot-name snapshot-123.snapshot --output ./backup.snapshot -ph qdrant.example.com:6333
 
 Available transfer methods:
   - stream_records (default, best for most cases)
   - snapshot
   - wal_delta
   - resharding_stream_records
+
+Available recovery priorities:
+  - snapshot (default): Restore from snapshot, other nodes sync from this
+  - replica: Prefer existing healthy replicas over snapshot
         """
     )
     
     # Operation type
     operation_group = parser.add_mutually_exclusive_group(required=True)
+    
+    # Shard operations
     operation_group.add_argument(
         "-mv", "--move-shard",
         action="store_true",
@@ -71,6 +101,33 @@ Available transfer methods:
         "-ls", "--list-shards",
         action="store_true",
         help="List all local shards from each peer in the cluster"
+    )
+    
+    # Snapshot operations
+    operation_group.add_argument(
+        "--snap-list",
+        action="store_true",
+        help="List snapshots (use -c for collection, --full for cluster snapshots)"
+    )
+    operation_group.add_argument(
+        "--snap-create",
+        action="store_true",
+        help="Create a snapshot (use -c for collection, --full for cluster snapshot)"
+    )
+    operation_group.add_argument(
+        "--snap-delete",
+        action="store_true",
+        help="Delete a snapshot (requires -c and --snapshot-name, or --full and --snapshot-name)"
+    )
+    operation_group.add_argument(
+        "--snap-recover",
+        action="store_true",
+        help="Recover a collection from snapshot (requires -c and --location)"
+    )
+    operation_group.add_argument(
+        "--snap-download",
+        action="store_true",
+        help="Download a snapshot file (requires -c and --snapshot-name)"
     )
     
     # Parameters for move/abort operations
@@ -127,6 +184,59 @@ Available transfer methods:
         action="store_true",
         help="Use latest peer information from MongoDB instead of querying (only for -mv and -rs operations)"
     )
+    
+    # Snapshot parameters
+    parser.add_argument(
+        "-ph", "--public-host",
+        type=str,
+        help="Public host URL for snapshot operations. Supports multiple formats: "
+             "'https://host:port', 'http://host:port', 'host:port', or 'host:port:https'. "
+             "Examples: 'https://qdrant.example.com:6333', 'qdrant.example.com:6333', 'qdrant.example.com:443:https'"
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Use full (cluster) snapshots instead of collection snapshots"
+    )
+    parser.add_argument(
+        "--snapshot-name",
+        type=str,
+        help="Name of the snapshot (for --snap-delete and --snap-download)"
+    )
+    parser.add_argument(
+        "--location",
+        type=str,
+        help="Snapshot location URL or path (for --snap-recover)"
+    )
+    parser.add_argument(
+        "--location-api-key",
+        type=str,
+        help="API key for authenticated snapshot URL (for --snap-recover)"
+    )
+    parser.add_argument(
+        "--priority",
+        type=str,
+        choices=["snapshot", "replica"],
+        default="snapshot",
+        help="Recovery priority: 'snapshot' (restore from file) or 'replica' (prefer existing replicas)"
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=str,
+        help="Output file path (for --snap-download)"
+    )
+    parser.add_argument(
+        "--wait/--no-wait",
+        dest="wait",
+        action="store_true",
+        default=True,
+        help="Wait for operation to complete (default: True)"
+    )
+    parser.add_argument(
+        "--snap-api-key",
+        type=str,
+        help="API key for the snapshot server (overrides QDRANT_API_KEY env var)"
+    )
 
     
     return parser
@@ -165,4 +275,21 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     
     if args.latest and not (args.move_shard or args.replicate_shard):
         parser.error("--latest can only be used with -mv or -rs operations")
+    
+    # Validate snapshot operations
+    if args.snap_delete:
+        if not args.snapshot_name:
+            parser.error("--snapshot-name is required for --snap-delete")
+    
+    if args.snap_recover:
+        if not args.location:
+            parser.error("--location is required for --snap-recover")
+        if args.full:
+            parser.error("--snap-recover with --full is not supported via API. Use server restart with --snapshot-path instead.")
+    
+    if args.snap_download:
+        if not args.snapshot_name:
+            parser.error("--snapshot-name is required for --snap-download")
+        if args.full:
+            parser.error("--snap-download with --full is not yet supported")
 

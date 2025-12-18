@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Qdrant Manager
+Comment=Desktop GUI for managing Qdrant distributed clusters
+Exec=/usr/bin/qdrant-manager
+Icon=qdrant-manager
+Terminal=false
+Categories=Development;Database;Utility;
+Keywords=qdrant;vector;database;cluster;management;
+

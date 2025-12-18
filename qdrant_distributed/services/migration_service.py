@@ -626,7 +626,8 @@ async def save_summaries(qdrant_manager: MultiQdrantManager, collection_id: str,
 async def process_collection(collection_id: str, qdrant_manager: MultiQdrantManager,
                             progress_callback: Optional[Callable] = None,
                             embedding_callback: Optional[Callable] = None,
-                            status_callback: Optional[Callable] = None):
+                            status_callback: Optional[Callable] = None,
+                            cancellation_flag: Optional[Callable[[], bool]] = None):
     """
     Process a collection by migrating from source to target Qdrant instance.
     
@@ -635,6 +636,8 @@ async def process_collection(collection_id: str, qdrant_manager: MultiQdrantMana
         qdrant_manager: MultiQdrantManager instance
         progress_callback: Optional callback for progress updates (collection_id, current, total)
         embedding_callback: Optional callback for generating embeddings
+        status_callback: Optional callback for status updates
+        cancellation_flag: Optional callable that returns True if migration should be cancelled
     
     Returns:
         List of all migrated documents
@@ -668,8 +671,14 @@ async def process_collection(collection_id: str, qdrant_manager: MultiQdrantMana
         all_documents = []
         total_documents = 0
         batch_number = 0
+        total_batches = 0  # Initialize total_batches to track estimated total batches
         
         while True:
+            # Check for cancellation
+            if cancellation_flag and cancellation_flag():
+                _log_with_callbacks("warning", f"Migration cancelled. Stopping collection {collection_id} processing.")
+                break
+            
             batch_number += 1
             _log_with_callbacks("debug", f"  Batch {batch_number}: Fetching documents for collection {collection_id}, offset: {offset}")
             

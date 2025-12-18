@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+# See debhelper(7) (uncomment to enable)
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# Install the executable
+	mkdir -p $(CURDIR)/debian/qdrant-manager/usr/bin
+	# Path will be replaced by build script, using placeholder
+	cp @EXECUTABLE_PATH@ $(CURDIR)/debian/qdrant-manager/usr/bin/qdrant-manager
+	chmod +x $(CURDIR)/debian/qdrant-manager/usr/bin/qdrant-manager
+	
+	# Install desktop file
+	mkdir -p $(CURDIR)/debian/qdrant-manager/usr/share/applications
+	cp $(CURDIR)/qdrant-manager.desktop $(CURDIR)/debian/qdrant-manager/usr/share/applications/
+	
+	# Install icon
+	mkdir -p $(CURDIR)/debian/qdrant-manager/usr/share/pixmaps
+	# Path will be replaced by build script, using placeholder
+	cp @ICON_PATH@ $(CURDIR)/debian/qdrant-manager/usr/share/pixmaps/qdrant-manager.png
+
+override_dh_auto_build:
+	# Build is done separately, just copy files
+	@echo "Using pre-built executable from dist/"
