@@ -86,85 +86,123 @@ class MigrationExecutor:
             
             migration_ops = MigrationOperations()
             
-            # Track elapsed time
+            # Track elapsed time and collections
             start_time = datetime.now(timezone.utc)
             collection_start_times = {}
+            processed_collections = 0
+            total_collections = 0
+            current_collection = None
+            collections_seen = set()
             
-            # Register log callback
+            def format_elapsed_time(seconds: float) -> str:
+                """Format elapsed time in human-readable form (no seconds display)."""
+                if seconds < 60:
+                    return f"{int(seconds)}s"
+                elif seconds < 3600:
+                    minutes = int(seconds // 60)
+                    secs = int(seconds % 60)
+                    return f"{minutes}m {secs}s" if secs > 0 else f"{minutes}m"
+                else:
+                    hours = int(seconds // 3600)
+                    minutes = int((seconds % 3600) // 60)
+                    if minutes > 0:
+                        return f"{hours}h {minutes}m"
+                    return f"{hours}h"
+            
+            # Register log callback - filter out DEBUG logs
             def log_callback(message: str, level: str = "info"):
-                """Log callback to display migration service logs."""
+                """Log callback to display migration service logs (excluding DEBUG)."""
+                # Skip DEBUG logs
+                if level.lower() == "debug":
+                    return
+                
                 level_map = {
-                    "debug": ("[dim]", "dim"),
-                    "info": ("[cyan]", "cyan"),
+                    "info": ("[dim]", "dim"),
                     "warning": ("[yellow]", "yellow"),
-                    "error": ("[red]", "red"),
+                    "error": ("[bold red]", "bold red"),
                     "critical": ("[bold red]", "bold red")
                 }
-                style, close_tag = level_map.get(level.lower(), ("[cyan]", "cyan"))
+                style, close_tag = level_map.get(level.lower(), ("[dim]", "dim"))
                 msg = message.rstrip('\n')
-                self.console.print(f"{style}{msg}[/{close_tag}]")
+                
+                # Only show errors prominently, keep info minimal
+                if level.lower() in ("error", "critical"):
+                    self.console.print(f"{style}❌ {msg}[/{close_tag}]")
+                elif level.lower() == "warning":
+                    self.console.print(f"{style}⚠️  {msg}[/{close_tag}]")
+                # Info logs are too verbose, skip them
             
             add_log_callback(log_callback)
             
-            # Progress and status callbacks
+            # Progress callback - simplified
             def progress_callback(collection_id: str, current: int, total: Optional[int]):
-                """Progress callback for migration."""
-                if total is not None and current is not None and total > 0:
-                    pct = int((current / total) * 100)
-                    elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                    self.console.print(f"[cyan]  {collection_id}: {pct}% ({current}/{total}) - Elapsed: {elapsed:.1f}s[/cyan]")
-                elif current is not None:
-                    elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                    self.console.print(f"[cyan]  {collection_id}: {current} documents - Elapsed: {elapsed:.1f}s[/cyan]")
+                """Progress callback for migration - simplified display."""
+                # Progress is shown in status callback, keep this minimal
+                pass
             
             def status_callback(collection_id: str, status: str, missing: int = 0, 
                               migrated: int = 0, total: int = 0, current_batch: int = 0, 
                               state: str = "", total_batches: int = 0):
-                """Status callback for migration."""
+                """Status callback for migration - user-friendly display."""
+                nonlocal processed_collections, total_collections, current_collection, collections_seen
+                
                 if collection_id not in collection_start_times:
                     collection_start_times[collection_id] = datetime.now(timezone.utc)
+                    if collection_id not in collections_seen:
+                        collections_seen.add(collection_id)
+                        total_collections += 1
+                    current_collection = collection_id
                 
                 coll_elapsed = (datetime.now(timezone.utc) - collection_start_times[collection_id]).total_seconds()
                 total_elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                 
-                status_parts = []
-                if state:
-                    status_parts.append(state)
-                if current_batch > 0:
-                    batch_info = f"Batch {current_batch}"
-                    if total_batches > 0:
-                        batch_info += f"/{total_batches}"
-                    status_parts.append(batch_info)
-                if migrated > 0:
-                    status_parts.append(f"{migrated:,} migrated")
-                if missing > 0:
-                    status_parts.append(f"{missing:,} missing")
-                if total > 0:
-                    status_parts.append(f"{total:,} total")
+                # Format elapsed times
+                coll_elapsed_str = format_elapsed_time(coll_elapsed)
+                total_elapsed_str = format_elapsed_time(total_elapsed)
                 
-                status_msg = " | ".join(status_parts) if status_parts else status
-                if coll_elapsed > 0:
-                    status_msg += f" | {coll_elapsed:.1f}s"
-                
+                # Display based on status
                 if status == "Starting":
-                    self.console.print(f"[bold cyan]▶ Starting collection: {collection_id}[/bold cyan]")
+                    processed_collections += 1
+                    self.console.print()
+                    self.console.print(f"[bold cyan]▶ Collection {processed_collections}/{total_collections}: {collection_id}[/bold cyan]")
                 elif status == "Processing":
-                    self.console.print(f"[cyan]  {collection_id}: {status_msg}[/cyan]")
+                    # Show progress: processed/total collections with elapsed time
+                    # Use current collection index + 1 for display
+                    current_idx = len(collections_seen)
+                    progress_info = f"[{current_idx}/{total_collections}]"
+                    
+                    # Build status line
+                    parts = [progress_info, collection_id]
+                    if total > 0:
+                        parts.append(f"{migrated:,}/{total:,} docs")
+                    elif migrated > 0:
+                        parts.append(f"{migrated:,} docs")
+                    if total_batches > 0:
+                        parts.append(f"Batch {current_batch}/{total_batches}")
+                    parts.append(f"({coll_elapsed_str})")
+                    
+                    # Use carriage return to update same line
+                    self.console.print(f"[cyan]{' | '.join(parts)}[/cyan]", end="\r")
                 elif status == "Completed":
-                    self.console.print(f"[bold green]✓ {collection_id}: Completed in {coll_elapsed:.1f}s (Total: {total_elapsed:.1f}s)[/bold green]")
+                    processed_collections += 1
+                    self.console.print()  # Clear the progress line
+                    self.console.print(f"[bold green]✓ [{processed_collections}/{total_collections}] {collection_id}: Completed ({coll_elapsed_str})[/bold green]")
                 elif status == "Failed":
-                    self.console.print(f"[bold red]✗ {collection_id}: Failed after {coll_elapsed:.1f}s[/bold red]")
+                    processed_collections += 1
+                    self.console.print()  # Clear the progress line
+                    self.console.print(f"[bold red]✗ [{processed_collections}/{total_collections}] {collection_id}: Failed after {coll_elapsed_str}[/bold red]")
                 elif status == "Checking":
-                    self.console.print(f"[yellow]🔍 {collection_id}: Checking synchronization...[/yellow]")
+                    self.console.print(f"[yellow]🔍 Checking: {collection_id}...[/yellow]")
                 elif status == "Synced":
                     self.console.print(f"[green]✓ {collection_id}: Already synced[/green]")
                 elif status == "Skipped":
                     self.console.print(f"[dim]⊘ {collection_id}: Skipped[/dim]")
                 elif status == "Pending":
-                    self.console.print(f"[yellow]⏳ {collection_id}: Pending migration ({missing:,} missing)[/yellow]")
-                else:
-                    if status_msg:
-                        self.console.print(f"[cyan]  {collection_id}: {status_msg}[/cyan]")
+                    self.console.print(f"[yellow]⏳ {collection_id}: {missing:,} missing documents[/yellow]")
+                
+                # Show overall progress at the end of each collection
+                if status in ("Completed", "Failed"):
+                    self.console.print(f"[dim]   Overall progress: {processed_collections}/{total_collections} collections | Total time: {total_elapsed_str}[/dim]")
             
             # Run migration based on mode
             self._run_migration(
@@ -173,15 +211,47 @@ class MigrationExecutor:
             )
             
         except KeyboardInterrupt:
+            def format_elapsed_time(seconds: float) -> str:
+                if seconds < 60:
+                    return f"{int(seconds)}s"
+                elif seconds < 3600:
+                    minutes = int(seconds // 60)
+                    secs = int(seconds % 60)
+                    return f"{minutes}m {secs}s" if secs > 0 else f"{minutes}m"
+                else:
+                    hours = int(seconds // 3600)
+                    minutes = int((seconds % 3600) // 60)
+                    if minutes > 0:
+                        return f"{hours}h {minutes}m"
+                    return f"{hours}h"
+            
             total_elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            total_elapsed_str = format_elapsed_time(total_elapsed)
             self.console.print()
-            self.ui.show_warning(f"Operation cancelled by user (after {total_elapsed:.1f}s)")
+            self.ui.show_warning(f"Operation cancelled by user (after {total_elapsed_str})")
         except Exception as e:
+            def format_elapsed_time(seconds: float) -> str:
+                if seconds < 60:
+                    return f"{int(seconds)}s"
+                elif seconds < 3600:
+                    minutes = int(seconds // 60)
+                    secs = int(seconds % 60)
+                    return f"{minutes}m {secs}s" if secs > 0 else f"{minutes}m"
+                else:
+                    hours = int(seconds // 3600)
+                    minutes = int((seconds % 3600) // 60)
+                    if minutes > 0:
+                        return f"{hours}h {minutes}m"
+                    return f"{hours}h"
+            
             total_elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.ui.show_error(f"Migration failed after {total_elapsed:.1f}s: {e}")
+            total_elapsed_str = format_elapsed_time(total_elapsed)
+            self.console.print()
+            self.ui.show_error(f"Migration failed after {total_elapsed_str}: {e}")
             import traceback
             self.console.print()
-            self.console.print("[dim]" + traceback.format_exc() + "[/dim]")
+            self.console.print("[bold red]Error Details:[/bold red]")
+            self.console.print("[red]" + str(e) + "[/red]")
         
         self.ui.pause()
     
@@ -289,20 +359,49 @@ class MigrationExecutor:
     
     def _display_migration_results(self, result, start_time):
         """Display migration results."""
+        def format_elapsed_time(seconds: float) -> str:
+            """Format elapsed time in human-readable form."""
+            if seconds < 60:
+                return f"{int(seconds)}s"
+            elif seconds < 3600:
+                minutes = int(seconds // 60)
+                secs = int(seconds % 60)
+                return f"{minutes}m {secs}s" if secs > 0 else f"{minutes}m"
+            else:
+                hours = int(seconds // 3600)
+                minutes = int((seconds % 3600) // 60)
+                if minutes > 0:
+                    return f"{hours}h {minutes}m"
+                return f"{hours}h"
+        
         total_elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        total_elapsed_str = format_elapsed_time(total_elapsed)
         
         self.console.print()
         self.console.print(Panel("[bold]Migration Results[/bold]", style="green"))
         self.console.print()
-        self.console.print(f"Total Documents: {result.get('total_documents', 0):,}")
-        self.console.print(f"Successful Collections: {len(result.get('successful_collections', []))}")
-        if result.get('failed_collections'):
-            self.console.print(f"[red]Failed Collections: {len(result['failed_collections'])}[/red]")
-            for coll_id in result['failed_collections']:
+        
+        successful = result.get('successful_collections', [])
+        failed = result.get('failed_collections', [])
+        total_docs = result.get('total_documents', 0)
+        
+        self.console.print(f"[green]✓ Successful Collections:[/green] {len(successful)}")
+        if successful:
+            for coll_id in successful[:10]:  # Show first 10
                 self.console.print(f"  • {coll_id}")
+            if len(successful) > 10:
+                self.console.print(f"  ... and {len(successful) - 10} more")
+        
+        if failed:
+            self.console.print()
+            self.console.print(f"[bold red]✗ Failed Collections:[/bold red] {len(failed)}")
+            for coll_id in failed:
+                self.console.print(f"  • [red]{coll_id}[/red]")
         
         self.console.print()
-        self.console.print(Panel(f"[bold green]✅ Migration Completed![/bold green]\n[bold]Total Elapsed Time: {total_elapsed:.2f}s[/bold]", style="green"))
+        self.console.print(f"[bold]Total Documents Migrated:[/bold] {total_docs:,}")
+        self.console.print()
+        self.console.print(Panel(f"[bold green]✅ Migration Completed![/bold green]\n[bold]Total Time: {total_elapsed_str}[/bold]", style="green"))
         self.console.print()
     
 
