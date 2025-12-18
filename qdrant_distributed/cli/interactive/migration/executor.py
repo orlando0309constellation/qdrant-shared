@@ -155,10 +155,6 @@ class MigrationExecutor:
                         collections_seen.add(collection_id)
                     current_collection = collection_id
                 
-                # Increment current collection index ONLY when we START processing a new collection
-                if status == "Starting" and is_new_collection:
-                    current_collection_index += 1
-                
                 # Ensure total_collections always matches the number of unique collections seen
                 total_collections = len(collections_seen)
                 
@@ -171,6 +167,10 @@ class MigrationExecutor:
                 
                 # Display based on status
                 if status == "Starting":
+                    # Increment current collection index when we START processing a collection
+                    # Always increment on "Starting" - this means we're processing a new collection
+                    current_collection_index += 1
+                    
                     self.console.print()
                     # Show which collection we're starting (current index / total)
                     if total_collections > 0:
