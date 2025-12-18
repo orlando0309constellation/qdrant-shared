@@ -146,12 +146,15 @@ class MigrationExecutor:
                 """Status callback for migration - user-friendly display."""
                 nonlocal processed_collections, total_collections, current_collection, collections_seen
                 
+                # Track new collections and initialize timing
                 if collection_id not in collection_start_times:
                     collection_start_times[collection_id] = datetime.now(timezone.utc)
                     if collection_id not in collections_seen:
                         collections_seen.add(collection_id)
-                        total_collections += 1
                     current_collection = collection_id
+                
+                # Ensure total_collections always matches the number of unique collections seen
+                total_collections = len(collections_seen)
                 
                 coll_elapsed = (datetime.now(timezone.utc) - collection_start_times[collection_id]).total_seconds()
                 total_elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
@@ -160,16 +163,22 @@ class MigrationExecutor:
                 coll_elapsed_str = format_elapsed_time(coll_elapsed)
                 total_elapsed_str = format_elapsed_time(total_elapsed)
                 
+                # Calculate current collection index (1-based for display)
+                # This is the number of unique collections we've seen so far
+                current_collection_num = len(collections_seen)
+                
                 # Display based on status
                 if status == "Starting":
-                    processed_collections += 1
                     self.console.print()
-                    self.console.print(f"[bold cyan]▶ Collection {processed_collections}/{total_collections}: {collection_id}[/bold cyan]")
+                    # Show which collection we're starting (current number / total discovered so far)
+                    self.console.print(f"[bold cyan]▶ Collection {current_collection_num}/{total_collections if total_collections > 0 else '?'}: {collection_id}[/bold cyan]")
                 elif status == "Processing":
-                    # Show progress: processed/total collections with elapsed time
-                    # Use current collection index + 1 for display
-                    current_idx = len(collections_seen)
-                    progress_info = f"[{current_idx}/{total_collections}]"
+                    # Show progress: current collection number / total collections
+                    # Use total_collections if known, otherwise show current number
+                    if total_collections > 0:
+                        progress_info = f"[{current_collection_num}/{total_collections}]"
+                    else:
+                        progress_info = f"[{current_collection_num}/?]"
                     
                     # Build status line
                     parts = [progress_info, collection_id]
@@ -184,13 +193,23 @@ class MigrationExecutor:
                     # Use carriage return to update same line
                     self.console.print(f"[cyan]{' | '.join(parts)}[/cyan]", end="\r")
                 elif status == "Completed":
+                    # Only increment when actually completed
                     processed_collections += 1
                     self.console.print()  # Clear the progress line
-                    self.console.print(f"[bold green]✓ [{processed_collections}/{total_collections}] {collection_id}: Completed ({coll_elapsed_str})[/bold green]")
+                    # Show processed count (completed) / total discovered
+                    if total_collections > 0:
+                        self.console.print(f"[bold green]✓ [{processed_collections}/{total_collections}] {collection_id}: Completed ({coll_elapsed_str})[/bold green]")
+                    else:
+                        self.console.print(f"[bold green]✓ [{processed_collections}/?] {collection_id}: Completed ({coll_elapsed_str})[/bold green]")
                 elif status == "Failed":
+                    # Only increment when actually failed
                     processed_collections += 1
                     self.console.print()  # Clear the progress line
-                    self.console.print(f"[bold red]✗ [{processed_collections}/{total_collections}] {collection_id}: Failed after {coll_elapsed_str}[/bold red]")
+                    # Show processed count (failed) / total discovered
+                    if total_collections > 0:
+                        self.console.print(f"[bold red]✗ [{processed_collections}/{total_collections}] {collection_id}: Failed after {coll_elapsed_str}[/bold red]")
+                    else:
+                        self.console.print(f"[bold red]✗ [{processed_collections}/?] {collection_id}: Failed after {coll_elapsed_str}[/bold red]")
                 elif status == "Checking":
                     self.console.print(f"[yellow]🔍 Checking: {collection_id}...[/yellow]")
                 elif status == "Synced":
