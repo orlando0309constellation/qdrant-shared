@@ -9,6 +9,7 @@ Documentation: https://api.qdrant.tech/master/api-reference/distributed/update-c
 
 import os
 import sys
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ from qdrant_distributed.config import MySQLManager
 from qdrant_distributed.services.mysql_service import MySQLService
 from qdrant_distributed.services.snapshot_service import SnapshotService
 # Note: MongoDB support is deprecated - using MySQL by default
-from typing import Dict, List
+from typing import Dict, List, Optional
 from qdrant_distributed.models.shard import ShardInfo
 
 
@@ -152,12 +153,76 @@ def main() -> int:
     
     # Display operation header
     formatter = ResultFormatter()
-    formatter.print_header("Qdrant Cluster Manager")
+    formatter.print_header("🔧 Qdrant Cluster Manager")
     
     # Determine operation type
     is_snapshot_op = any([args.snap_list, args.snap_create, args.snap_delete, args.snap_recover, args.snap_download])
+    is_migration_op = any([args.migrate, args.migrate_usc, args.migrate_check])
     
-    if is_snapshot_op:
+    # Check if Rich is available for colored output
+    try:
+        from rich.console import Console
+        from rich.table import Table
+        from rich import box
+        rich_console = Console()
+        use_rich_output = True
+    except ImportError:
+        rich_console = None
+        use_rich_output = False
+    
+    if is_migration_op:
+        # Show migration operation info
+        source_url = os.getenv("QDRANT_URL", "localhost")
+        source_port = os.getenv("QDRANT_PORT", "6333")
+        target_url = os.getenv("QDRANT_URL_2", "localhost")
+        target_port = os.getenv("QDRANT_PORT_2", "6333")
+        
+        if use_rich_output and rich_console:
+            info_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+            info_table.add_column("Setting", style="cyan")
+            info_table.add_column("Value", style="white")
+            info_table.add_row("Source", f"{source_url}:{source_port}")
+            info_table.add_row("Target", f"{target_url}:{target_port}")
+            
+            if args.migrate:
+                info_table.add_row("Operation", "[bold cyan]Migrate All Collections[/bold cyan]")
+            elif args.migrate_usc:
+                info_table.add_row("Operation", "[bold cyan]Migrate Missing Collections Only[/bold cyan]")
+            elif args.migrate_check:
+                info_table.add_row("Operation", "[bold cyan]Check Synchronization[/bold cyan]")
+                if args.check_count:
+                    info_table.add_row("Mode", "[yellow]Detailed count check[/yellow]")
+            
+            direction = "[yellow]Reverse (target → source)[/yellow]" if args.reverse else "[green]Normal (source → target)[/green]"
+            info_table.add_row("Direction", direction)
+            
+            https = getattr(args, 'migrate_https', True)
+            https_status = "[green]Enabled[/green]" if https else "[yellow]Disabled[/yellow]"
+            info_table.add_row("HTTPS", https_status)
+            
+            rich_console.print(info_table)
+        else:
+            print(f"Source: {source_url}:{source_port}")
+            print(f"Target: {target_url}:{target_port}")
+            
+            if args.migrate:
+                print("Operation: Migrate All Collections")
+            elif args.migrate_usc:
+                print("Operation: Migrate Missing Collections Only")
+            elif args.migrate_check:
+                print("Operation: Check Synchronization")
+                if args.check_count:
+                    print("Mode: Detailed count check")
+            
+            if args.reverse:
+                print("Direction: Reverse (target → source)")
+            else:
+                print("Direction: Normal (source → target)")
+            
+            https = getattr(args, 'migrate_https', True)
+            print(f"HTTPS: {https}")
+    
+    elif is_snapshot_op:
         # Show connection info for snapshot operations
         if args.public_host:
             print(f"Host: {args.public_host}")
@@ -183,7 +248,8 @@ def main() -> int:
             print(f"Snapshot: {args.snapshot_name}")
             if args.output:
                 print(f"Output: {args.output}")
-    else:
+    elif not is_migration_op:
+        # Shard operations (not migration, not snapshot)
         print(f"Collection: {args.collection}")
         
         if args.list_shards:
@@ -218,6 +284,244 @@ def main() -> int:
     try:
         # Check if this is a snapshot operation (uses different initialization)
         is_snapshot_op = any([args.snap_list, args.snap_create, args.snap_delete, args.snap_recover, args.snap_download])
+        is_migration_op = any([args.migrate, args.migrate_usc, args.migrate_check])
+        
+        # Handle migration operations
+        if is_migration_op:
+            # Import migration operations
+            from qdrant_distributed.operations.migration_operations import MigrationOperations
+            
+            # Get configuration from environment variables
+            source_url = os.getenv("QDRANT_URL", "localhost")
+            source_port = int(os.getenv("QDRANT_PORT", "6333"))
+            source_api_key = os.getenv("QDRANT_API_KEY")
+            target_url = os.getenv("QDRANT_URL_2", "localhost")
+            target_port = int(os.getenv("QDRANT_PORT_2", "6333"))
+            target_api_key = os.getenv("QDRANT_API_KEY_2", os.getenv("QDRANT_API_KEY"))
+            https = getattr(args, 'migrate_https', True)
+            reverse = getattr(args, 'reverse', False)
+            
+            # Build configs
+            source_config = {
+                'url': source_url,
+                'port': source_port,
+                'api_key': source_api_key if source_api_key else None,
+                'https': https
+            }
+            
+            target_config = {
+                'url': target_url,
+                'port': target_port,
+                'api_key': target_api_key if target_api_key else None,
+                'https': https
+            }
+            
+            # MySQL config - use default (None means use default from ConfigService)
+            mysql_config = None
+            
+            print()
+            print("[*] Starting migration operation...")
+            print()
+            
+            # Set event loop policy for Windows
+            if os.name == 'nt':  # Windows
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            
+            # Create migration operations instance
+            migration_ops = MigrationOperations()
+            
+            # Use the console we already created
+            console = rich_console if use_rich_output else None
+            use_rich = use_rich_output
+            
+            # Progress callback for simple CLI
+            def progress_callback(collection_id: str, current: int, total: Optional[int]):
+                if use_rich and console:
+                    if total:
+                        percentage = int((current / total) * 100)
+                        console.print(f"  [cyan]Collection {collection_id}:[/cyan] [yellow]{current}/{total}[/yellow] [green]({percentage}%)[/green]")
+                    else:
+                        console.print(f"  [cyan]Collection {collection_id}:[/cyan] [yellow]{current}[/yellow] documents processed")
+                else:
+                    if total:
+                        percentage = int((current / total) * 100)
+                        print(f"  Collection {collection_id}: {current}/{total} ({percentage}%)")
+                    else:
+                        print(f"  Collection {collection_id}: {current} documents processed")
+            
+            # Status callback for simple CLI
+            def status_callback(collection_id: str, status: str, missing: int = 0,
+                              migrated: int = 0, total: int = 0, current_batch: int = 0,
+                              state: str = "", total_batches: int = 0):
+                if use_rich and console:
+                    if status in ["Completed", "Synced"]:
+                        console.print(f"  [bold green]✓ {collection_id}:[/bold green] [green]{status}[/green]")
+                    elif status == "Failed":
+                        console.print(f"  [bold red]✗ {collection_id}:[/bold red] [red]{status}[/red]")
+                    elif status == "Processing":
+                        if total_batches > 0:
+                            console.print(f"  [yellow]⟳ {collection_id}:[/yellow] Processing batch [cyan]{current_batch + 1}/{total_batches}[/cyan]")
+                        elif total > 0:
+                            console.print(f"  [yellow]⟳ {collection_id}:[/yellow] [cyan]{migrated}/{total}[/cyan] documents")
+                else:
+                    if status in ["Completed", "Synced"]:
+                        print(f"  ✅ {collection_id}: {status}")
+                    elif status == "Failed":
+                        print(f"  ❌ {collection_id}: {status}")
+                    elif status == "Processing":
+                        if total_batches > 0:
+                            print(f"  🔄 {collection_id}: Processing batch {current_batch + 1}/{total_batches}")
+                        elif total > 0:
+                            print(f"  🔄 {collection_id}: {migrated}/{total} documents")
+            
+            # Determine mode and execute
+            try:
+                if args.migrate:
+                    if use_rich and console:
+                        console.print("[bold cyan]🔄 Running in MIGRATE mode - migrating all collections[/bold cyan]")
+                        console.print()
+                    else:
+                        print("[*] Running in MIGRATE mode - migrating all collections")
+                        print()
+                    result = asyncio.run(
+                        migration_ops.migrate_all(
+                            source_config=source_config,
+                            target_config=target_config,
+                            mysql_config=mysql_config,
+                            reverse=reverse,
+                            progress_callback=progress_callback,
+                            status_callback=status_callback
+                        )
+                    )
+                    print()
+                    if use_rich and console:
+                        from rich.panel import Panel
+                        from rich.table import Table
+                        summary = Table(show_header=False, box=box.ROUNDED, padding=(0, 2))
+                        summary.add_column("Metric", style="cyan")
+                        summary.add_column("Value", style="bold white")
+                        summary.add_row("Status", "[bold green]✓ Completed[/bold green]")
+                        summary.add_row("Total documents migrated", f"[green]{result.get('total_documents', 0):,}[/green]")
+                        summary.add_row("Successful collections", f"[green]{len(result.get('successful_collections', []))}[/green]")
+                        if result.get('failed_collections'):
+                            summary.add_row("Failed collections", f"[red]{result.get('failed_collections')}[/red]")
+                        console.print(Panel(summary, title="[bold green]Migration Completed[/bold green]", border_style="green"))
+                    else:
+                        print("=" * 80)
+                        print("[+] Migration completed!")
+                        print(f"Total documents migrated: {result.get('total_documents', 0)}")
+                        print(f"Successful collections: {len(result.get('successful_collections', []))}")
+                        if result.get('failed_collections'):
+                            print(f"Failed collections: {result.get('failed_collections')}")
+                        print("=" * 80)
+                    
+                elif args.migrate_usc:
+                    if use_rich and console:
+                        console.print("[bold cyan]🔍 Running in MIGRATE-USC mode - migrating only missing collections[/bold cyan]")
+                        console.print()
+                    else:
+                        print("[*] Running in MIGRATE-USC mode - migrating only missing collections")
+                        print()
+                    result = asyncio.run(
+                        migration_ops.migrate_with_checks(
+                            source_config=source_config,
+                            target_config=target_config,
+                            mysql_config=mysql_config,
+                            reverse=reverse,
+                            progress_callback=progress_callback,
+                            status_callback=status_callback
+                        )
+                    )
+                    print()
+                    if use_rich and console:
+                        from rich.panel import Panel
+                        from rich.table import Table
+                        summary = Table(show_header=False, box=box.ROUNDED, padding=(0, 2))
+                        summary.add_column("Metric", style="cyan")
+                        summary.add_column("Value", style="bold white")
+                        summary.add_row("Status", "[bold green]✓ Completed[/bold green]")
+                        summary.add_row("Total documents migrated", f"[green]{result.get('total_documents', 0):,}[/green]")
+                        summary.add_row("Successful collections", f"[green]{len(result.get('successful_collections', []))}[/green]")
+                        if result.get('failed_collections'):
+                            summary.add_row("Failed collections", f"[red]{result.get('failed_collections')}[/red]")
+                        console.print(Panel(summary, title="[bold green]Migration Completed[/bold green]", border_style="green"))
+                    else:
+                        print("=" * 80)
+                        print("[+] Migration completed!")
+                        print(f"Total documents migrated: {result.get('total_documents', 0)}")
+                        print(f"Successful collections: {len(result.get('successful_collections', []))}")
+                        if result.get('failed_collections'):
+                            print(f"Failed collections: {result.get('failed_collections')}")
+                        print("=" * 80)
+                    
+                elif args.migrate_check:
+                    check_count = getattr(args, 'check_count', False)
+                    if use_rich and console:
+                        console.print(f"[bold cyan]✓ Running in CHECK mode - checking synchronization[/bold cyan] [dim](count: {check_count})[/dim]")
+                        console.print()
+                    else:
+                        print(f"[*] Running in CHECK mode - checking synchronization (count: {check_count})")
+                        print()
+                    result = asyncio.run(
+                        migration_ops.check_sync(
+                            source_config=source_config,
+                            target_config=target_config,
+                            mysql_config=mysql_config,
+                            check_count=check_count
+                        )
+                    )
+                    print()
+                    if use_rich and console:
+                        from rich.panel import Panel
+                        from rich.table import Table
+                        summary = Table(show_header=False, box=box.ROUNDED, padding=(0, 2))
+                        summary.add_column("Metric", style="cyan")
+                        summary.add_column("Value", style="bold white")
+                        summary.add_row("Status", "[bold green]✓ Check Completed[/bold green]")
+                        if result.get('missing_collections'):
+                            summary.add_row("Missing collections", f"[red]{result.get('missing_collections')}[/red]")
+                        if result.get('collections_with_missing_points'):
+                            summary.add_row("Collections with missing points", f"[yellow]{len(result.get('collections_with_missing_points', []))}[/yellow]")
+                            total_missing = result.get('total_missing_points', 0)
+                            if total_missing > 0:
+                                summary.add_row("Total missing points", f"[red]{total_missing:,}[/red]")
+                        if not result.get('missing_collections') and not result.get('collections_with_missing_points'):
+                            summary.add_row("Result", "[bold green]✓ All collections are synchronized![/bold green]")
+                        console.print(Panel(summary, title="[bold green]Synchronization Check Completed[/bold green]", border_style="green"))
+                    else:
+                        print("=" * 80)
+                        print("[+] Synchronization check completed!")
+                        if result.get('missing_collections'):
+                            print(f"Missing collections: {result.get('missing_collections')}")
+                        if result.get('collections_with_missing_points'):
+                            print(f"Collections with missing points: {len(result.get('collections_with_missing_points', []))}")
+                            total_missing = result.get('total_missing_points', 0)
+                            if total_missing > 0:
+                                print(f"Total missing points: {total_missing}")
+                        if not result.get('missing_collections') and not result.get('collections_with_missing_points'):
+                            print("✅ All collections are synchronized!")
+                        print("=" * 80)
+                
+                return 0
+                
+            except KeyboardInterrupt:
+                print()
+                print("[!] Migration interrupted by user")
+                return 130
+            except Exception as e:
+                formatter.print_error(
+                    "Migration Failed",
+                    f"{type(e).__name__}: {e}",
+                    [
+                        "Check that source and target Qdrant instances are accessible",
+                        "Verify environment variables (QDRANT_URL, QDRANT_PORT, QDRANT_URL_2, QDRANT_PORT_2)",
+                        "Check MySQL connection if using database",
+                        "Check that all required dependencies are installed"
+                    ]
+                )
+                import traceback
+                traceback.print_exc()
+                return 1
         
         # Initialize services based on operation type
         shard_ops = None
@@ -260,25 +564,45 @@ def main() -> int:
         
         # Execute operation
         if args.move_shard:
-            if shard_ids:
-                print(f"[>] Moving shards {shard_ids} from peer {args.from_peer} to peer {args.to_peer}")
+            if use_rich_output and rich_console:
+                if shard_ids:
+                    rich_console.print(f"[bold cyan]➡️  Moving shards[/bold cyan] [yellow]{shard_ids}[/yellow] [dim]from peer[/dim] [cyan]{args.from_peer}[/cyan] [dim]to peer[/dim] [cyan]{args.to_peer}[/cyan]")
+                else:
+                    rich_console.print(f"[bold cyan]➡️  Moving all shards[/bold cyan] [dim]from peer[/dim] [cyan]{args.from_peer}[/cyan] [dim]to peer[/dim] [cyan]{args.to_peer}[/cyan]")
+                rich_console.print(f"   [dim]Method:[/dim] [yellow]{args.method}[/yellow]")
+                rich_console.print()
             else:
-                print(f"[>] Moving all shards from peer {args.from_peer} to peer {args.to_peer}")
-            print(f"   Method: {args.method}")
-            print()
+                if shard_ids:
+                    print(f"[>] Moving shards {shard_ids} from peer {args.from_peer} to peer {args.to_peer}")
+                else:
+                    print(f"[>] Moving all shards from peer {args.from_peer} to peer {args.to_peer}")
+                print(f"   Method: {args.method}")
+                print()
             
             # Get all shards from both peers
             if args.latest:
-                print(f"📋 Getting shard information from MySQL (latest)...")
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📋 Getting shard information from MySQL (latest)...[/cyan]")
+                else:
+                    print(f"📋 Getting shard information from MySQL (latest)...")
                 all_peer_shards = mysql_service.get_latest_peers_as_dict()
-                print(f"✓ Retrieved peer information from MySQL")
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[green]✓ Retrieved peer information from MySQL[/green]")
+                else:
+                    print(f"✓ Retrieved peer information from MySQL")
             else:
-                print(f"📋 Getting shard information from peers...")
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📋 Getting shard information from peers...[/cyan]")
+                else:
+                    print(f"📋 Getting shard information from peers...")
                 all_peer_shards = cluster_ops.list_all_shards(
                     collection_name=args.collection,
                     timeout=args.timeout
                 )
-            print()
+            if use_rich_output and rich_console:
+                rich_console.print()
+            else:
+                print()
             
             # Use move_all to handle the entire workflow
             shard_ops.move_all(
@@ -292,25 +616,45 @@ def main() -> int:
             )
         
         elif args.replicate_shard:
-            if shard_ids:
-                print(f"[>] Replicating shards {shard_ids} from peer {args.from_peer} to peer {args.to_peer}")
+            if use_rich_output and rich_console:
+                if shard_ids:
+                    rich_console.print(f"[bold cyan]📄 Replicating shards[/bold cyan] [yellow]{shard_ids}[/yellow] [dim]from peer[/dim] [cyan]{args.from_peer}[/cyan] [dim]to peer[/dim] [cyan]{args.to_peer}[/cyan]")
+                else:
+                    rich_console.print(f"[bold cyan]📄 Replicating all shards[/bold cyan] [dim]from peer[/dim] [cyan]{args.from_peer}[/cyan] [dim]to peer[/dim] [cyan]{args.to_peer}[/cyan]")
+                rich_console.print(f"   [dim]Method:[/dim] [yellow]{args.method}[/yellow]")
+                rich_console.print()
             else:
-                print(f"[>] Replicating all shards from peer {args.from_peer} to peer {args.to_peer}")
-            print(f"   Method: {args.method}")
-            print()
+                if shard_ids:
+                    print(f"[>] Replicating shards {shard_ids} from peer {args.from_peer} to peer {args.to_peer}")
+                else:
+                    print(f"[>] Replicating all shards from peer {args.from_peer} to peer {args.to_peer}")
+                print(f"   Method: {args.method}")
+                print()
             
             # Get all shards from both peers
             if args.latest:
-                print(f"📋 Getting shard information from MySQL (latest)...")
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📋 Getting shard information from MySQL (latest)...[/cyan]")
+                else:
+                    print(f"📋 Getting shard information from MySQL (latest)...")
                 all_peer_shards = mysql_service.get_latest_peers_as_dict()
-                print(f"✓ Retrieved peer information from MySQL")
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[green]✓ Retrieved peer information from MySQL[/green]")
+                else:
+                    print(f"✓ Retrieved peer information from MySQL")
             else:
-                print(f"📋 Getting shard information from peers...")
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📋 Getting shard information from peers...[/cyan]")
+                else:
+                    print(f"📋 Getting shard information from peers...")
                 all_peer_shards = cluster_ops.list_all_shards(
                     collection_name=args.collection,
                     timeout=args.timeout
                 )
-            print()
+            if use_rich_output and rich_console:
+                rich_console.print()
+            else:
+                print()
             
             # Use replicate_all to handle the entire workflow
             shard_ops.replicate_all(
@@ -342,8 +686,12 @@ def main() -> int:
                 )
                 return 1
             
-            print(f"[!] Aborting transfer for shard {shard_id} from peer {args.from_peer} to peer {args.to_peer}")
-            print()
+            if use_rich_output and rich_console:
+                rich_console.print(f"[bold yellow]⚠️  Aborting transfer[/bold yellow] [dim]for shard[/dim] [cyan]{shard_id}[/cyan] [dim]from peer[/dim] [cyan]{args.from_peer}[/cyan] [dim]to peer[/dim] [cyan]{args.to_peer}[/cyan]")
+                rich_console.print()
+            else:
+                print(f"[!] Aborting transfer for shard {shard_id} from peer {args.from_peer} to peer {args.to_peer}")
+                print()
             
             result = shard_ops.abort_transfer(
                 collection_name=args.collection,
@@ -398,82 +746,174 @@ def main() -> int:
             url, port, https, api_key = _get_snapshot_connection(args)
             
             if args.full:
-                print(f"[*] Listing full (cluster) snapshots...")
-                print()
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📸 Listing full (cluster) snapshots...[/cyan]")
+                    rich_console.print()
+                else:
+                    print(f"[*] Listing full (cluster) snapshots...")
+                    print()
                 snapshots = SnapshotService.list_cluster_snapshots(url, port, https, api_key)
             else:
-                print(f"[*] Listing snapshots for collection '{args.collection}'...")
-                print()
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📸 Listing snapshots for collection[/cyan] [yellow]'{args.collection}'[/yellow]...")
+                    rich_console.print()
+                else:
+                    print(f"[*] Listing snapshots for collection '{args.collection}'...")
+                    print()
                 snapshots = SnapshotService.list_collection_snapshots(url, port, https, api_key, args.collection)
             
             if not snapshots:
-                print("No snapshots found.")
+                if use_rich_output and rich_console:
+                    rich_console.print("[yellow]⚠ No snapshots found.[/yellow]")
+                else:
+                    print("No snapshots found.")
             else:
-                print(f"{'Name':<60} {'Size':>15} {'Created':<25}")
-                print("-" * 100)
-                for snap in snapshots:
-                    name = snap.get("name", "Unknown")
-                    size = snap.get("size", 0)
-                    created = snap.get("creation_time", "N/A")
-                    # Format size
-                    if size < 1024:
-                        size_str = f"{size} B"
-                    elif size < 1024 * 1024:
-                        size_str = f"{size / 1024:.1f} KB"
-                    elif size < 1024 * 1024 * 1024:
-                        size_str = f"{size / (1024 * 1024):.1f} MB"
-                    else:
-                        size_str = f"{size / (1024 * 1024 * 1024):.2f} GB"
-                    print(f"{name:<60} {size_str:>15} {str(created):<25}")
-                print()
-                print(f"Total: {len(snapshots)} snapshot(s)")
+                if use_rich_output and rich_console:
+                    from rich.table import Table
+                    table = Table(title="Snapshots", box=box.ROUNDED, show_header=True)
+                    table.add_column("Name", style="cyan", width=60)
+                    table.add_column("Size", style="green", justify="right", width=15)
+                    table.add_column("Created", style="yellow", width=25)
+                    
+                    for snap in snapshots:
+                        name = snap.get("name", "Unknown")
+                        size = snap.get("size", 0)
+                        created = snap.get("creation_time", "N/A")
+                        # Format size
+                        if size < 1024:
+                            size_str = f"{size} B"
+                        elif size < 1024 * 1024:
+                            size_str = f"{size / 1024:.1f} KB"
+                        elif size < 1024 * 1024 * 1024:
+                            size_str = f"{size / (1024 * 1024):.1f} MB"
+                        else:
+                            size_str = f"{size / (1024 * 1024 * 1024):.2f} GB"
+                        
+                        # Format time
+                        if "T" in str(created):
+                            created = str(created).split(".")[0].replace("T", " ")
+                        
+                        table.add_row(name, size_str, str(created))
+                    
+                    rich_console.print(table)
+                    rich_console.print(f"[green]Total: {len(snapshots)} snapshot(s)[/green]")
+                else:
+                    print(f"{'Name':<60} {'Size':>15} {'Created':<25}")
+                    print("-" * 100)
+                    for snap in snapshots:
+                        name = snap.get("name", "Unknown")
+                        size = snap.get("size", 0)
+                        created = snap.get("creation_time", "N/A")
+                        # Format size
+                        if size < 1024:
+                            size_str = f"{size} B"
+                        elif size < 1024 * 1024:
+                            size_str = f"{size / 1024:.1f} KB"
+                        elif size < 1024 * 1024 * 1024:
+                            size_str = f"{size / (1024 * 1024):.1f} MB"
+                        else:
+                            size_str = f"{size / (1024 * 1024 * 1024):.2f} GB"
+                        print(f"{name:<60} {size_str:>15} {str(created):<25}")
+                    print()
+                    print(f"Total: {len(snapshots)} snapshot(s)")
         
         elif args.snap_create:
             url, port, https, api_key = _get_snapshot_connection(args)
             
             if args.full:
-                print(f"[*] Creating full (cluster) snapshot...")
-                print()
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📸 Creating full (cluster) snapshot...[/cyan]")
+                    rich_console.print()
+                else:
+                    print(f"[*] Creating full (cluster) snapshot...")
+                    print()
                 result = SnapshotService.create_cluster_snapshot(url, port, https, api_key)
             else:
-                print(f"[*] Creating snapshot for collection '{args.collection}'...")
-                print()
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[cyan]📸 Creating snapshot for collection[/cyan] [yellow]'{args.collection}'[/yellow]...")
+                    rich_console.print()
+                else:
+                    print(f"[*] Creating snapshot for collection '{args.collection}'...")
+                    print()
                 result = SnapshotService.create_collection_snapshot(url, port, https, api_key, args.collection)
             
-            print(f"[+] Snapshot created successfully!")
-            print(f"    Name: {result.get('name', 'N/A')}")
-            size = result.get('size', 0)
-            if size:
-                if size < 1024 * 1024:
-                    print(f"    Size: {size / 1024:.1f} KB")
-                elif size < 1024 * 1024 * 1024:
-                    print(f"    Size: {size / (1024 * 1024):.1f} MB")
-                else:
-                    print(f"    Size: {size / (1024 * 1024 * 1024):.2f} GB")
+            if use_rich_output and rich_console:
+                from rich.panel import Panel
+                from rich.table import Table
+                info_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+                info_table.add_column("Property", style="cyan")
+                info_table.add_column("Value", style="white")
+                info_table.add_row("Status", "[bold green]✓ Created successfully[/bold green]")
+                info_table.add_row("Name", result.get('name', 'N/A'))
+                size = result.get('size', 0)
+                if size:
+                    if size < 1024 * 1024:
+                        size_str = f"{size / 1024:.1f} KB"
+                    elif size < 1024 * 1024 * 1024:
+                        size_str = f"{size / (1024 * 1024):.1f} MB"
+                    else:
+                        size_str = f"{size / (1024 * 1024 * 1024):.2f} GB"
+                    info_table.add_row("Size", f"[green]{size_str}[/green]")
+                rich_console.print(Panel(info_table, title="[bold green]Snapshot Created[/bold green]", border_style="green"))
+            else:
+                print(f"[+] Snapshot created successfully!")
+                print(f"    Name: {result.get('name', 'N/A')}")
+                size = result.get('size', 0)
+                if size:
+                    if size < 1024 * 1024:
+                        print(f"    Size: {size / 1024:.1f} KB")
+                    elif size < 1024 * 1024 * 1024:
+                        print(f"    Size: {size / (1024 * 1024):.1f} MB")
+                    else:
+                        print(f"    Size: {size / (1024 * 1024 * 1024):.2f} GB")
         
         elif args.snap_delete:
             url, port, https, api_key = _get_snapshot_connection(args)
             
             if args.full:
-                print(f"[*] Deleting full snapshot '{args.snapshot_name}'...")
-                print()
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[yellow]🗑️  Deleting full snapshot[/yellow] [cyan]'{args.snapshot_name}'[/cyan]...")
+                    rich_console.print()
+                else:
+                    print(f"[*] Deleting full snapshot '{args.snapshot_name}'...")
+                    print()
                 SnapshotService.delete_cluster_snapshot(url, port, https, api_key, args.snapshot_name)
             else:
-                print(f"[*] Deleting snapshot '{args.snapshot_name}' from collection '{args.collection}'...")
-                print()
+                if use_rich_output and rich_console:
+                    rich_console.print(f"[yellow]🗑️  Deleting snapshot[/yellow] [cyan]'{args.snapshot_name}'[/cyan] [dim]from collection[/dim] [yellow]'{args.collection}'[/yellow]...")
+                    rich_console.print()
+                else:
+                    print(f"[*] Deleting snapshot '{args.snapshot_name}' from collection '{args.collection}'...")
+                    print()
                 SnapshotService.delete_collection_snapshot(url, port, https, api_key, args.collection, args.snapshot_name)
             
-            print(f"[+] Snapshot '{args.snapshot_name}' deleted successfully!")
+            if use_rich_output and rich_console:
+                rich_console.print(f"[bold green]✓ Snapshot '{args.snapshot_name}' deleted successfully![/bold green]")
+            else:
+                print(f"[+] Snapshot '{args.snapshot_name}' deleted successfully!")
         
         elif args.snap_recover:
             url, port, https, api_key = _get_snapshot_connection(args)
             
-            print(f"[*] Recovering collection '{args.collection}' from snapshot...")
-            print(f"    Location: {args.location}")
-            print(f"    Priority: {args.priority}")
-            if args.location_api_key:
-                print(f"    Using location API key: Yes")
-            print()
+            if use_rich_output and rich_console:
+                rich_console.print(f"[cyan]🔄 Recovering collection[/cyan] [yellow]'{args.collection}'[/yellow] [dim]from snapshot...[/dim]")
+                from rich.table import Table
+                info_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+                info_table.add_column("Setting", style="cyan")
+                info_table.add_column("Value", style="white")
+                info_table.add_row("Location", args.location)
+                info_table.add_row("Priority", args.priority)
+                if args.location_api_key:
+                    info_table.add_row("Location API Key", "[green]Yes[/green]")
+                rich_console.print(info_table)
+                rich_console.print()
+            else:
+                print(f"[*] Recovering collection '{args.collection}' from snapshot...")
+                print(f"    Location: {args.location}")
+                print(f"    Priority: {args.priority}")
+                if args.location_api_key:
+                    print(f"    Using location API key: Yes")
+                print()
             
             SnapshotService.recover_collection_snapshot(
                 url, port, https, api_key,
@@ -483,17 +923,31 @@ def main() -> int:
                 location_api_key=args.location_api_key
             )
             
-            print(f"[+] Collection '{args.collection}' recovered successfully!")
+            if use_rich_output and rich_console:
+                rich_console.print(f"[bold green]✓ Collection '{args.collection}' recovered successfully![/bold green]")
+            else:
+                print(f"[+] Collection '{args.collection}' recovered successfully!")
         
         elif args.snap_download:
             url, port, https, api_key = _get_snapshot_connection(args)
             
             output_path = args.output or args.snapshot_name
             
-            print(f"[*] Downloading snapshot '{args.snapshot_name}'...")
-            print(f"    Collection: {args.collection}")
-            print(f"    Output: {output_path}")
-            print()
+            if use_rich_output and rich_console:
+                rich_console.print(f"[cyan]⬇️  Downloading snapshot[/cyan] [yellow]'{args.snapshot_name}'[/yellow]...")
+                from rich.table import Table
+                info_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+                info_table.add_column("Setting", style="cyan")
+                info_table.add_column("Value", style="white")
+                info_table.add_row("Collection", args.collection)
+                info_table.add_row("Output", output_path)
+                rich_console.print(info_table)
+                rich_console.print()
+            else:
+                print(f"[*] Downloading snapshot '{args.snapshot_name}'...")
+                print(f"    Collection: {args.collection}")
+                print(f"    Output: {output_path}")
+                print()
             
             result_path = SnapshotService.download_snapshot(
                 url, port, https, api_key,
@@ -502,12 +956,27 @@ def main() -> int:
                 output_path
             )
             
-            print(f"[+] Snapshot downloaded successfully!")
-            print(f"    Saved to: {result_path}")
+            if use_rich_output and rich_console:
+                from rich.panel import Panel
+                from rich.table import Table
+                info_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+                info_table.add_column("Property", style="cyan")
+                info_table.add_column("Value", style="white")
+                info_table.add_row("Status", "[bold green]✓ Downloaded successfully[/bold green]")
+                info_table.add_row("Saved to", result_path)
+                rich_console.print(Panel(info_table, title="[bold green]Snapshot Downloaded[/bold green]", border_style="green"))
+            else:
+                print(f"[+] Snapshot downloaded successfully!")
+                print(f"    Saved to: {result_path}")
         
-        print("\n" + "=" * 80)
-        print("[+] Operation completed")
-        print("=" * 80)
+        # Final success message
+        if use_rich_output and rich_console:
+            rich_console.print()
+            rich_console.print(Panel("[bold green]✓ Operation completed[/bold green]", border_style="green"))
+        else:
+            print("\n" + "=" * 80)
+            print("[+] Operation completed")
+            print("=" * 80)
         
         return 0
         

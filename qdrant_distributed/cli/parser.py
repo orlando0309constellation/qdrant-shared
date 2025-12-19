@@ -34,6 +34,22 @@ Examples:
   # Abort an ongoing transfer
   qdrant-shard -abort --shard-id 0 --from-peer 1 --to-peer 2
 
+  # === MIGRATION OPERATIONS ===
+  # Migrate all collections (uses QDRANT_URL/QDRANT_PORT as source, QDRANT_URL_2/QDRANT_PORT_2 as target)
+  qdrant-shard --migrate
+
+  # Migrate only missing collections
+  qdrant-shard --migrate-usc
+
+  # Check synchronization between instances
+  qdrant-shard --migrate-check
+
+  # Check with detailed count of missing points
+  qdrant-shard --migrate-check --check-count
+
+  # Reverse migration (from target to source)
+  qdrant-shard --migrate --reverse
+
   # === SNAPSHOT OPERATIONS ===
   # List snapshots for a collection (using env vars QDRANT_URL, QDRANT_PORT)
   qdrant-shard --snap-list -c my_collection
@@ -128,6 +144,23 @@ Available recovery priorities:
         "--snap-download",
         action="store_true",
         help="Download a snapshot file (requires -c and --snapshot-name)"
+    )
+    
+    # Migration operations
+    operation_group.add_argument(
+        "--migrate",
+        action="store_true",
+        help="Migrate all collections from source to target Qdrant instance"
+    )
+    operation_group.add_argument(
+        "--migrate-usc",
+        action="store_true",
+        help="Migrate only missing collections (after checking what's already migrated)"
+    )
+    operation_group.add_argument(
+        "--migrate-check",
+        action="store_true",
+        help="Check synchronization between source and target Qdrant instances"
     )
     
     # Parameters for move/abort operations
@@ -237,6 +270,30 @@ Available recovery priorities:
         type=str,
         help="API key for the snapshot server (overrides QDRANT_API_KEY env var)"
     )
+    
+    # Migration parameters
+    parser.add_argument(
+        "--check-count",
+        action="store_true",
+        help="When in --migrate-check mode, also count and report missing points"
+    )
+    parser.add_argument(
+        "--reverse",
+        action="store_true",
+        help="Reverse migration direction: migrate from target to source instead of source to target"
+    )
+    parser.add_argument(
+        "--migrate-https",
+        action="store_true",
+        default=True,
+        help="Use HTTPS for migration connections (default: True)"
+    )
+    parser.add_argument(
+        "--no-migrate-https",
+        dest="migrate_https",
+        action="store_false",
+        help="Disable HTTPS for migration connections"
+    )
 
     
     return parser
@@ -292,4 +349,8 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
             parser.error("--snapshot-name is required for --snap-download")
         if args.full:
             parser.error("--snap-download with --full is not yet supported")
+    
+    # Validate migration operations
+    if args.check_count and not args.migrate_check:
+        parser.error("--check-count can only be used with --migrate-check operation")
 
