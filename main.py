@@ -320,8 +320,16 @@ def main() -> int:
             mysql_config = None
             
             print()
-            print("[*] Starting migration operation...")
-            print()
+            if use_rich_output and rich_console:
+                rich_console.print("[cyan]⏳ Starting migration operation...[/cyan]")
+                rich_console.print()
+            else:
+                print("[*] Starting migration operation...")
+                print()
+            
+            # Track start time for elapsed time calculation
+            import time
+            start_time = time.time()
             
             # Set event loop policy for Windows
             if os.name == 'nt':  # Windows
@@ -329,6 +337,23 @@ def main() -> int:
             
             # Create migration operations instance
             migration_ops = MigrationOperations()
+            
+            # Helper function to format elapsed time
+            def format_elapsed_time(seconds: float) -> str:
+                """Format elapsed time in human-readable form."""
+                if seconds < 60:
+                    return f"{seconds:.2f}s"
+                elif seconds < 3600:
+                    minutes = int(seconds // 60)
+                    secs = seconds % 60
+                    return f"{minutes}m {secs:.2f}s"
+                else:
+                    hours = int(seconds // 3600)
+                    minutes = int((seconds % 3600) // 60)
+                    secs = seconds % 60
+                    if minutes > 0:
+                        return f"{hours}h {minutes}m {secs:.2f}s"
+                    return f"{hours}h {secs:.2f}s"
             
             # Use the console we already created
             console = rich_console if use_rich_output else None
@@ -393,6 +418,11 @@ def main() -> int:
                             status_callback=status_callback
                         )
                     )
+                    
+                    # Calculate elapsed time
+                    elapsed_time = time.time() - start_time
+                    elapsed_str = format_elapsed_time(elapsed_time)
+                    
                     print()
                     if use_rich and console:
                         from rich.panel import Panel
@@ -401,6 +431,7 @@ def main() -> int:
                         summary.add_column("Metric", style="cyan")
                         summary.add_column("Value", style="bold white")
                         summary.add_row("Status", "[bold green]✓ Completed[/bold green]")
+                        summary.add_row("Elapsed time", f"[yellow]{elapsed_str}[/yellow]")
                         summary.add_row("Total documents migrated", f"[green]{result.get('total_documents', 0):,}[/green]")
                         summary.add_row("Successful collections", f"[green]{len(result.get('successful_collections', []))}[/green]")
                         if result.get('failed_collections'):
@@ -409,6 +440,7 @@ def main() -> int:
                     else:
                         print("=" * 80)
                         print("[+] Migration completed!")
+                        print(f"Elapsed time: {elapsed_str}")
                         print(f"Total documents migrated: {result.get('total_documents', 0)}")
                         print(f"Successful collections: {len(result.get('successful_collections', []))}")
                         if result.get('failed_collections'):
@@ -432,6 +464,11 @@ def main() -> int:
                             status_callback=status_callback
                         )
                     )
+                    
+                    # Calculate elapsed time
+                    elapsed_time = time.time() - start_time
+                    elapsed_str = format_elapsed_time(elapsed_time)
+                    
                     print()
                     if use_rich and console:
                         from rich.panel import Panel
@@ -440,6 +477,7 @@ def main() -> int:
                         summary.add_column("Metric", style="cyan")
                         summary.add_column("Value", style="bold white")
                         summary.add_row("Status", "[bold green]✓ Completed[/bold green]")
+                        summary.add_row("Elapsed time", f"[yellow]{elapsed_str}[/yellow]")
                         summary.add_row("Total documents migrated", f"[green]{result.get('total_documents', 0):,}[/green]")
                         summary.add_row("Successful collections", f"[green]{len(result.get('successful_collections', []))}[/green]")
                         if result.get('failed_collections'):
@@ -448,6 +486,7 @@ def main() -> int:
                     else:
                         print("=" * 80)
                         print("[+] Migration completed!")
+                        print(f"Elapsed time: {elapsed_str}")
                         print(f"Total documents migrated: {result.get('total_documents', 0)}")
                         print(f"Successful collections: {len(result.get('successful_collections', []))}")
                         if result.get('failed_collections'):
@@ -470,6 +509,11 @@ def main() -> int:
                             check_count=check_count
                         )
                     )
+                    
+                    # Calculate elapsed time
+                    elapsed_time = time.time() - start_time
+                    elapsed_str = format_elapsed_time(elapsed_time)
+                    
                     print()
                     if use_rich and console:
                         from rich.panel import Panel
@@ -478,6 +522,7 @@ def main() -> int:
                         summary.add_column("Metric", style="cyan")
                         summary.add_column("Value", style="bold white")
                         summary.add_row("Status", "[bold green]✓ Check Completed[/bold green]")
+                        summary.add_row("Elapsed time", f"[yellow]{elapsed_str}[/yellow]")
                         if result.get('missing_collections'):
                             summary.add_row("Missing collections", f"[red]{result.get('missing_collections')}[/red]")
                         if result.get('collections_with_missing_points'):
@@ -491,6 +536,7 @@ def main() -> int:
                     else:
                         print("=" * 80)
                         print("[+] Synchronization check completed!")
+                        print(f"Elapsed time: {elapsed_str}")
                         if result.get('missing_collections'):
                             print(f"Missing collections: {result.get('missing_collections')}")
                         if result.get('collections_with_missing_points'):
