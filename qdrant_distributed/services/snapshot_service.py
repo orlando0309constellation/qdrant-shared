@@ -237,10 +237,16 @@ class SnapshotService:
         priority: Optional[Union[SnapshotPriority, str]] = None,
         checksum: Optional[str] = None,
         wait: bool = True,
-        location_api_key: Optional[str] = None
+        location_api_key: Optional[str] = None,
+        force_delete_existing: bool = False
     ) -> bool:
         """
         Recover a collection from a snapshot.
+        
+        ⚠️ CRITICAL BEHAVIOR IN DISTRIBUTED QDRANT:
+        - If collection EXISTS with replicas, recover_snapshot may skip actual recovery!
+        - Qdrant prefers existing replicas over snapshot download for speed
+        - To FORCE recovery from snapshot, you MUST delete the collection first
         
         Args:
             collection_name: Name of the collection to recover
@@ -248,22 +254,100 @@ class SnapshotService:
                 - URL to download snapshot from (http://, https://, s3://)
                 - Local file path on the Qdrant server
             priority: Recovery priority (low, normal, snapshot)
-                - "low": Minimize impact on serving
-                - "normal": Balance between speed and serving
-                - "snapshot": Prioritize recovery speed
+                - "snapshot": Try to use snapshot (may still use replicas if available!)
+                - "replica": Prefer existing replicas over snapshot
             checksum: Expected SHA-256 checksum for validation
             wait: Wait for recovery to complete (default: True)
             location_api_key: API key for accessing the snapshot location (if remote)
+            force_delete_existing: If True, delete existing collection before recovery
+                ⚠️ WARNING: This will DELETE the current collection!
+                Only use if you're CERTAIN you want to replace existing data.
             
         Returns:
             True if recovery initiated/completed successfully
+            
+        Raises:
+            ValueError: If collection exists and force_delete_existing=False
         """
         logger.info(
             f"Recovering collection '{collection_name}' from '{location}' "
-            f"(priority={priority}, wait={wait})"
+            f"(priority={priority}, wait={wait}, force_delete={force_delete_existing})"
         )
         
         client = self._get_client(timeout=self._snapshot_timeout)
+        
+        # CRITICAL: Check if collection exists
+        collection_exists = False
+        existing_points = 0
+        initial_points_count = 0
+        
+        try:
+            collection_info = client.get_collection(collection_name)
+            collection_exists = True
+            existing_points = collection_info.points_count
+            initial_points_count = existing_points
+            
+            logger.warning(
+                f"Collection '{collection_name}' already exists with {existing_points:,} points"
+            )
+            
+            # In distributed Qdrant, recover_snapshot will likely SKIP actual recovery
+            # if replicas are available, even with priority="snapshot"
+            if not force_delete_existing:
+                error_msg = (
+                    f"\n{'='*70}\n"
+                    f"⚠️  CRITICAL: Collection '{collection_name}' already exists!\n"
+                    f"{'='*70}\n\n"
+                    f"📊 Current state:\n"
+                    f"   Points: {existing_points:,}\n"
+                    f"   Status: {collection_info.status}\n\n"
+                    f"🔴 In distributed Qdrant, recover_snapshot() will likely SKIP\n"
+                    f"   actual recovery and use existing replicas instead!\n\n"
+                    f"📋 Your options:\n\n"
+                    f"  1. RECOVER TO NEW NAME (Safest):\n"
+                    f"     → Recover as '{collection_name}_recovered'\n"
+                    f"     → Verify the data\n"
+                    f"     → Then handle the switchover\n\n"
+                    f"  2. FORCE DELETE & RECOVER (Risky):\n"
+                    f"     → Set force_delete_existing=True\n"
+                    f"     → Current data will be DELETED\n"
+                    f"     → Then recovered from snapshot\n\n"
+                    f"  3. LET QDRANT USE REPLICAS:\n"
+                    f"     → Keep existing data\n"
+                    f"     → Recovery will complete instantly\n"
+                    f"     → But NO data from snapshot!\n\n"
+                    f"{'='*70}\n"
+                    f"Refusing to proceed. Set force_delete_existing=True if you're certain.\n"
+                    f"{'='*70}\n"
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # User confirmed - delete existing collection
+            logger.warning("force_delete_existing=True - DELETING existing collection!")
+            print(f"\n⚠️  DELETING collection '{collection_name}' with {existing_points:,} points...")
+            
+            client.delete_collection(collection_name)
+            logger.info(f"Collection '{collection_name}' deleted")
+            print(f"✓ Collection deleted")
+            
+            # Wait for deletion to propagate across cluster
+            print(f"⏳ Waiting for deletion to propagate (5 seconds)...")
+            time.sleep(5)
+            print(f"✓ Ready for recovery\n")
+            
+        except Exception as e:
+            if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+                # Collection doesn't exist - perfect!
+                logger.info(f"Collection '{collection_name}' does not exist - will create from snapshot")
+                collection_exists = False
+            elif isinstance(e, ValueError):
+                # Our own error about existing collection
+                raise
+            else:
+                # Some other error
+                logger.error(f"Error checking collection: {e}")
+                raise
         
         # Convert string priority to enum if needed
         priority_value = None
@@ -274,8 +358,17 @@ class SnapshotService:
                 priority_value = priority.value
         
         try:
+            # Now recover from snapshot
+            print(f"📥 Initiating snapshot recovery...")
+            print(f"📍 Location: {location}")
+            print(f"🎯 Priority: {priority_value}")
+            print(f"\n⏳ This will:")
+            print(f"   1. Download snapshot from source (may take time)")
+            print(f"   2. Extract and validate snapshot")
+            print(f"   3. Index all vectors")
+            print()
+            
             # Force async recovery on server side to avoid timeouts
-            # We will handle waiting client-side if requested
             client.recover_snapshot(
                 collection_name=collection_name,
                 location=location,
@@ -285,43 +378,77 @@ class SnapshotService:
                 api_key=location_api_key
             )
             
+            print(f"✓ Recovery request sent to Qdrant")
+            logger.info("Recovery request submitted successfully")
+            
             if wait:
-                logger.info(f"Waiting for collection '{collection_name}' to recover (polling)...")
+                print(f"\n📊 Monitoring recovery progress...")
+                logger.info(f"Monitoring collection '{collection_name}' recovery...")
                 start_time = time.time()
+                last_log_time = start_time
+                poll_count = 0
                 
                 while True:
+                    elapsed = time.time() - start_time
+                    
                     # Check timeout
-                    if time.time() - start_time > self._snapshot_timeout:
+                    if elapsed > self._snapshot_timeout:
                         raise TimeoutError(
                             f"Timed out waiting for collection '{collection_name}' recovery "
-                            f"after {self._snapshot_timeout} seconds"
+                            f"after {self._snapshot_timeout} seconds ({self._snapshot_timeout/60:.0f} minutes)"
                         )
                     
                     try:
                         # Get collection status
-                        # Use a short timeout for the check itself
                         check_client = self._get_client(timeout=10)
                         collection_info = check_client.get_collection(collection_name)
                         status = collection_info.status
+                        points = collection_info.points_count
                         
-                        # Handle status check (supports both object and string)
+                        # Handle status check
                         status_str = str(status.value if hasattr(status, 'value') else status).lower()
                         
+                        # Log progress every 30 seconds
+                        if elapsed - last_log_time >= 30:
+                            print(f"⏱️  Status: {status_str.upper()} | Points: {points:,} | Elapsed: {int(elapsed)}s")
+                            last_log_time = elapsed
+                        
                         if status_str == "green":
+                            print(f"\n✅ Collection '{collection_name}' recovered successfully!")
+                            print(f"📊 Final points: {points:,}")
+                            print(f"⏱️  Total time: {int(elapsed)} seconds ({elapsed/60:.1f} minutes)\n")
+                            
+                            # CRITICAL CHECK: Did recovery actually happen?
+                            if collection_exists and points == existing_points and elapsed < 5:
+                                logger.error(
+                                    f"SUSPICIOUS: Collection recovered in {elapsed}s with same point count! "
+                                    f"Recovery may have been skipped!"
+                                )
+                                print(f"⚠️  WARNING: Recovery completed suspiciously fast ({elapsed}s)")
+                                print(f"⚠️  Points unchanged: {points:,}")
+                                print(f"⚠️  This suggests Qdrant used existing replicas instead of snapshot!")
+                                print(f"⚠️  Verify the data is actually from the snapshot!\n")
+                            
                             logger.info(f"Collection '{collection_name}' is ready (status: GREEN)")
                             break
                         
-                        logger.debug(f"Collection status: {status_str}")
+                        logger.debug(f"Collection status: {status_str}, points: {points}")
+                        poll_count += 1
                              
                     except Exception as e:
                         # Collection might not exist yet during initial phase
-                        # or other transient errors
-                        logger.debug(f"Polling check failed (retrying): {e}")
+                        logger.debug(f"Polling check #{poll_count} failed: {e}")
+                        if poll_count == 1:
+                            print(f"⏳ Waiting for collection to appear (Qdrant is processing snapshot)...")
+                        elif poll_count % 6 == 0:  # Every 30 seconds
+                            print(f"⏳ Still processing... ({int(elapsed)}s)")
                     
+                    poll_count += 1
                     time.sleep(5)  # Poll interval
 
             logger.info(f"Collection '{collection_name}' recovery {'completed' if wait else 'initiated'}")
             return True
+            
         except Exception as e:
             logger.error(f"Recovery failed: {e}")
             raise
@@ -716,10 +843,15 @@ class SnapshotService:
         priority: Optional[str] = None,
         checksum: Optional[str] = None,
         wait: bool = True,
-        location_api_key: Optional[str] = None
+        location_api_key: Optional[str] = None,
+        force_delete_existing: bool = False
     ) -> bool:
         """
         Recover a collection from snapshot (static method).
+        
+        ⚠️ IMPORTANT: In distributed Qdrant clusters, if the collection already exists,
+        recovery may be skipped even with priority="snapshot"! Set force_delete_existing=True
+        to delete and recreate the collection.
         
         Args:
             url: Qdrant server URL
@@ -728,10 +860,11 @@ class SnapshotService:
             api_key: Qdrant API key
             collection_name: Collection to recover
             snapshot_location: URL or path to snapshot
-            priority: Recovery priority ("low", "normal", "snapshot")
+            priority: Recovery priority ("snapshot" or "replica")
             checksum: Expected SHA-256 checksum
             wait: Wait for completion
             location_api_key: API key for snapshot location
+            force_delete_existing: Delete existing collection before recovery (DANGEROUS!)
         """
         service = SnapshotService._create_service(url, port, https, api_key)
         return service.recover_collection_snapshot_impl(
@@ -740,7 +873,8 @@ class SnapshotService:
             priority=priority,
             checksum=checksum,
             wait=wait,
-            location_api_key=location_api_key
+            location_api_key=location_api_key,
+            force_delete_existing=force_delete_existing
         )
     
     @staticmethod
