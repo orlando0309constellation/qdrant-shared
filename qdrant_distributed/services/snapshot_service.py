@@ -274,14 +274,52 @@ class SnapshotService:
                 priority_value = priority.value
         
         try:
+            # Force async recovery on server side to avoid timeouts
+            # We will handle waiting client-side if requested
             client.recover_snapshot(
                 collection_name=collection_name,
                 location=location,
                 priority=priority_value,
                 checksum=checksum,
-                wait=wait,
+                wait=False,
                 api_key=location_api_key
             )
+            
+            if wait:
+                logger.info(f"Waiting for collection '{collection_name}' to recover (polling)...")
+                start_time = time.time()
+                
+                while True:
+                    # Check timeout
+                    if time.time() - start_time > self._snapshot_timeout:
+                        raise TimeoutError(
+                            f"Timed out waiting for collection '{collection_name}' recovery "
+                            f"after {self._snapshot_timeout} seconds"
+                        )
+                    
+                    try:
+                        # Get collection status
+                        # Use a short timeout for the check itself
+                        check_client = self._get_client(timeout=10)
+                        collection_info = check_client.get_collection(collection_name)
+                        status = collection_info.status
+                        
+                        # Handle status check (supports both object and string)
+                        status_str = str(status.value if hasattr(status, 'value') else status).lower()
+                        
+                        if status_str == "green":
+                            logger.info(f"Collection '{collection_name}' is ready (status: GREEN)")
+                            break
+                        
+                        logger.debug(f"Collection status: {status_str}")
+                             
+                    except Exception as e:
+                        # Collection might not exist yet during initial phase
+                        # or other transient errors
+                        logger.debug(f"Polling check failed (retrying): {e}")
+                    
+                    time.sleep(5)  # Poll interval
+
             logger.info(f"Collection '{collection_name}' recovery {'completed' if wait else 'initiated'}")
             return True
         except Exception as e:
