@@ -936,6 +936,39 @@ class SnapshotManagementDialog:
         ttk.Checkbutton(location_frame, text="Auto-fill source API key from current connection", 
                        variable=auto_fill_key_var).pack(anchor=tk.W, pady=(5, 5))
         
+        # Pre-download option (RECOMMENDED for large snapshots)
+        pre_download_var = tk.BooleanVar(value=True)  # Default to True for better performance
+        pre_download_check = ttk.Checkbutton(
+            location_frame, 
+            text="⚡ Pre-download snapshot locally first (RECOMMENDED for snapshots >1GB - much faster!)",
+            variable=pre_download_var
+        )
+        pre_download_check.pack(anchor=tk.W, pady=(5, 5))
+        
+        # Pre-download path (optional)
+        pre_download_path_frame = ttk.Frame(location_frame)
+        pre_download_path_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(pre_download_path_frame, text="Pre-download path (optional, leave empty for temp directory):", 
+                 font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(0, 5))
+        
+        pre_download_path_var = tk.StringVar()
+        pre_download_path_entry = ttk.Entry(pre_download_path_frame, textvariable=pre_download_path_var, font=("Consolas", 9))
+        pre_download_path_entry.pack(fill=tk.X)
+        
+        # Show/hide pre-download path based on checkbox
+        def toggle_pre_download_path(*args):
+            location = location_var.get()
+            if pre_download_var.get() and location and (location.startswith("http://") or location.startswith("https://")):
+                pre_download_path_frame.pack(fill=tk.X, pady=(0, 5), after=pre_download_check)
+            else:
+                pre_download_path_frame.pack_forget()
+        
+        pre_download_var.trace("w", toggle_pre_download_path)
+        location_var.trace("w", toggle_pre_download_path)
+        # Initial state
+        toggle_pre_download_path()
+        
         # Recovery Priority Selection (only for collection snapshots in distributed clusters)
         priority_frame = ttk.Frame(location_frame)
         priority_frame.pack(fill=tk.X, pady=(10, 5))
@@ -1025,6 +1058,8 @@ class SnapshotManagementDialog:
             
             priority = priority_var.get()
             source_api_key = source_api_key_var.get().strip() or None
+            pre_download = pre_download_var.get()
+            pre_download_path = pre_download_path_var.get().strip() or None
             
             if snap_type == "collection":
                 collection_name = collection_var.get()
@@ -1038,14 +1073,26 @@ class SnapshotManagementDialog:
                 else:
                     priority_desc = "Prefer existing healthy replicas over snapshot"
                 
+                # Build confirmation message
+                confirm_msg = f"Recover collection '{collection_name}' from snapshot?\n\n"
+                confirm_msg += f"Snapshot: {snapshot_name}\n"
+                confirm_msg += f"Location: {location}\n\n"
+                confirm_msg += f"Priority: {priority.upper()}\n"
+                confirm_msg += f"→ {priority_desc}\n\n"
+                
+                if pre_download and (location.startswith("http://") or location.startswith("https://")):
+                    confirm_msg += f"⚡ Pre-download: ENABLED (faster recovery)\n"
+                    if pre_download_path:
+                        confirm_msg += f"   Path: {pre_download_path}\n"
+                    else:
+                        confirm_msg += f"   Path: Temp directory\n"
+                    confirm_msg += "\n"
+                
+                confirm_msg += f"⚠️ This will restore the collection from the snapshot."
+                
                 confirm = messagebox.askyesno(
                     "Confirm Recovery",
-                    f"Recover collection '{collection_name}' from snapshot?\n\n"
-                    f"Snapshot: {snapshot_name}\n"
-                    f"Location: {location}\n\n"
-                    f"Priority: {priority.upper()}\n"
-                    f"→ {priority_desc}\n\n"
-                    f"⚠️ This will restore the collection from the snapshot.",
+                    confirm_msg,
                     parent=self.window
                 )
                 if not confirm:
@@ -1055,6 +1102,8 @@ class SnapshotManagementDialog:
                 self._log(f"Snapshot: {snapshot_name}", "info")
                 self._log(f"Location: {location}", "info")
                 self._log(f"Priority: {priority}", "info")
+                if pre_download:
+                    self._log(f"Pre-download: ENABLED (faster recovery)", "info")
                 
                 def recover():
                     try:
@@ -1069,7 +1118,9 @@ class SnapshotManagementDialog:
                             collection_name,
                             location,
                             priority=priority,
-                            location_api_key=source_api_key
+                            location_api_key=source_api_key,
+                            pre_download=pre_download,
+                            pre_download_path=pre_download_path
                         )
                         
                         self.window.after(0, lambda: self._log("✅ Collection recovered successfully!", "success"))

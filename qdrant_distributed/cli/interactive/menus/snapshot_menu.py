@@ -250,33 +250,15 @@ class SnapshotMenu(BaseMenu):
             try:
                 from qdrant_distributed.services.snapshot_service import SnapshotService
                 
-                try:
-                    snapshots = self.run_with_spinner(
-                        "Loading snapshots from source...",
-                        SnapshotService.list_collection_snapshots,
-                        source_url, source_port, source_https, source_api_key, collection_name
-                    )
-                except Exception as e:
-                    # Collection doesn't exist on source server (maybe deleted)
-                    # or other error - just ask for manual URL
-                    error_msg = str(e)
-                    if "not found" in error_msg.lower() or "doesn't exist" in error_msg.lower():
-                        self.ui.show_warning(
-                            f"Collection '{collection_name}' not found on source server.\n"
-                            f"The snapshot file may still exist if it was created before deletion."
-                        )
-                    else:
-                        self.ui.show_warning(f"Failed to list snapshots: {error_msg}")
-                    
-                    self.console.print()
-                    self.console.print("[dim]Enter the full snapshot URL manually:[/dim]")
-                    location = Prompt.ask("Snapshot URL")
-                    snapshots = []  # Empty list, skip to manual entry
+                snapshots = self.run_with_spinner(
+                    "Loading snapshots from source...",
+                    SnapshotService.list_collection_snapshots,
+                    source_url, source_port, source_https, source_api_key, collection_name
+                )
                 
                 if not snapshots:
-                    if not location:  # If we didn't already prompt for it above
-                        self.ui.show_warning("No snapshots found on source server")
-                        location = Prompt.ask("Enter snapshot location manually")
+                    self.ui.show_warning("No snapshots found on source server")
+                    location = Prompt.ask("Enter snapshot location manually")
                 else:
                     self.console.print()
                     table = Table(title="Available Snapshots", box=box.ROUNDED)
@@ -313,25 +295,9 @@ class SnapshotMenu(BaseMenu):
                         return
                         
             except Exception as e:
-                error_msg = str(e)
-                if "not found" in error_msg.lower() or "doesn't exist" in error_msg.lower():
-                    self.ui.show_warning(
-                        f"Collection '{collection_name}' not found on source server.\n"
-                        f"The snapshot file may still exist if it was created before collection was deleted."
-                    )
-                else:
-                    self.ui.show_error(f"Failed to list snapshots: {e}")
-                
-                self.console.print()
-                self.console.print("[dim]Enter the snapshot URL manually:[/dim]")
+                self.ui.show_error(f"Failed to list snapshots: {e}")
                 location = Prompt.ask("Enter snapshot location manually")
         else:
-            self.console.print()
-            self.console.print("[cyan]Enter snapshot location:[/cyan]")
-            self.console.print("[dim]Examples:[/dim]")
-            self.console.print("[dim]  • https://server:6333/collections/my_collection/snapshots/snapshot-2024-12-22.snapshot[/dim]")
-            self.console.print("[dim]  • file:///path/to/snapshot.snapshot (if file is on Qdrant server)[/dim]")
-            self.console.print()
             location = Prompt.ask("Snapshot location (URL or path)")
             if location and (location.startswith("http://") or location.startswith("https://")):
                 if Confirm.ask("Does the source URL require authentication?", default=False):

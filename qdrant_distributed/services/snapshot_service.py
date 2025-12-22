@@ -238,7 +238,9 @@ class SnapshotService:
         checksum: Optional[str] = None,
         wait: bool = True,
         location_api_key: Optional[str] = None,
-        force_delete_existing: bool = False
+        force_delete_existing: bool = False,
+        pre_download: bool = False,
+        pre_download_path: Optional[str] = None
     ) -> bool:
         """
         Recover a collection from a snapshot.
@@ -262,6 +264,10 @@ class SnapshotService:
             force_delete_existing: If True, delete existing collection before recovery
                 ⚠️ WARNING: This will DELETE the current collection!
                 Only use if you're CERTAIN you want to replace existing data.
+            pre_download: If True, download snapshot locally first, then use local path
+                ⚡ RECOMMENDED for large snapshots (>1GB) - much faster recovery!
+            pre_download_path: Local path to save snapshot (default: temp directory)
+                Only used if pre_download=True
             
         Returns:
             True if recovery initiated/completed successfully
@@ -271,8 +277,107 @@ class SnapshotService:
         """
         logger.info(
             f"Recovering collection '{collection_name}' from '{location}' "
-            f"(priority={priority}, wait={wait}, force_delete={force_delete_existing})"
+            f"(priority={priority}, wait={wait}, force_delete={force_delete_existing}, pre_download={pre_download})"
         )
+        
+        # Pre-download snapshot if requested (RECOMMENDED for large snapshots)
+        final_location = location
+        if pre_download and (location.startswith("http://") or location.startswith("https://")):
+            import tempfile
+            import os
+            from pathlib import Path
+            
+            print(f"\n📥 Pre-downloading snapshot (RECOMMENDED for faster recovery)...")
+            print(f"   Source: {location}")
+            
+            # Determine download path
+            if pre_download_path:
+                download_path = pre_download_path
+            else:
+                # Use temp directory
+                temp_dir = tempfile.gettempdir()
+                # Extract filename from URL
+                filename = location.split("/")[-1].split("?")[0]  # Remove query params
+                if not filename or "." not in filename:
+                    filename = f"snapshot_{collection_name}_{int(time.time())}.snapshot"
+                download_path = os.path.join(temp_dir, filename)
+            
+            print(f"   Destination: {download_path}")
+            
+            # Download with progress
+            try:
+                download_start = time.time()
+                response = requests.get(
+                    location,
+                    headers=self._get_headers() if not location_api_key else {
+                        **self._get_headers(),
+                        "api-key": location_api_key
+                    },
+                    stream=True,
+                    timeout=self.DOWNLOAD_TIMEOUT
+                )
+                response.raise_for_status()
+                
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                chunk_size = 8192 * 16  # 128KB chunks for faster download
+                last_progress_time = download_start
+                
+                os.makedirs(os.path.dirname(download_path), exist_ok=True)
+                
+                with open(download_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            
+                            # Show progress every 2 seconds
+                            now = time.time()
+                            if now - last_progress_time >= 2.0:
+                                elapsed_dl = now - download_start
+                                speed = downloaded / elapsed_dl if elapsed_dl > 0 else 0
+                                percent = (downloaded / total_size * 100) if total_size > 0 else 0
+                                
+                                # Format sizes
+                                dl_mb = downloaded / (1024 * 1024)
+                                total_mb = total_size / (1024 * 1024) if total_size > 0 else 0
+                                speed_mb = speed / (1024 * 1024)
+                                
+                                # Estimate remaining time
+                                remaining = (total_size - downloaded) / speed if speed > 0 and total_size > 0 else 0
+                                
+                                print(f"   ⬇️  {dl_mb:.1f}/{total_mb:.1f} MB ({percent:.1f}%) | "
+                                      f"Speed: {speed_mb:.2f} MB/s | "
+                                      f"ETA: {int(remaining)}s", end='\r')
+                                last_progress_time = now
+                
+                download_time = time.time() - download_start
+                file_size_mb = downloaded / (1024 * 1024)
+                avg_speed_mb = file_size_mb / download_time if download_time > 0 else 0
+                
+                print(f"\n   ✅ Downloaded {file_size_mb:.2f} MB in {int(download_time)}s "
+                      f"(avg {avg_speed_mb:.2f} MB/s)")
+                
+                # Use absolute file path - Qdrant accepts absolute paths if accessible from server
+                # Note: This works if Qdrant server can access the local filesystem
+                # (same machine, shared mount, or Docker volume mount)
+                if os.path.exists(download_path):
+                    abs_path = os.path.abspath(download_path)
+                    # Qdrant accepts absolute paths directly (no file:// prefix needed)
+                    final_location = abs_path
+                    print(f"   📍 Using local path: {abs_path}")
+                    print(f"   ⚡ Recovery will be MUCH faster now (no network download needed)!")
+                    print(f"   ⚠️  Note: Qdrant server must be able to access this path")
+                    print(f"      (works if Qdrant is on same machine or shared filesystem)")
+                else:
+                    logger.warning(f"Downloaded file not found: {download_path}")
+                    final_location = location
+                    
+            except Exception as e:
+                logger.error(f"Pre-download failed: {e}. Falling back to direct URL recovery.")
+                print(f"   ⚠️  Pre-download failed: {e}")
+                print(f"   📥 Will use direct URL recovery (slower)")
+                final_location = location
         
         client = self._get_client(timeout=self._snapshot_timeout)
         
@@ -360,18 +465,26 @@ class SnapshotService:
         try:
             # Now recover from snapshot
             print(f"📥 Initiating snapshot recovery...")
-            print(f"📍 Location: {location}")
+            print(f"📍 Location: {final_location}")
+            if final_location != location:
+                print(f"   (Original: {location})")
             print(f"🎯 Priority: {priority_value}")
-            print(f"\n⏳ This will:")
-            print(f"   1. Download snapshot from source (may take time)")
-            print(f"   2. Extract and validate snapshot")
-            print(f"   3. Index all vectors")
+            
+            if not pre_download or not (location.startswith("http://") or location.startswith("https://")):
+                print(f"\n⏳ This will:")
+                print(f"   1. Download snapshot from source (may take time)")
+                print(f"   2. Extract and validate snapshot")
+                print(f"   3. Index all vectors")
+            else:
+                print(f"\n⏳ This will:")
+                print(f"   1. Extract and validate snapshot (already downloaded)")
+                print(f"   2. Index all vectors")
             print()
             
             # Force async recovery on server side to avoid timeouts
             client.recover_snapshot(
                 collection_name=collection_name,
-                location=location,
+                location=final_location,
                 priority=priority_value,
                 checksum=checksum,
                 wait=False,
@@ -386,7 +499,13 @@ class SnapshotService:
                 logger.info(f"Monitoring collection '{collection_name}' recovery...")
                 start_time = time.time()
                 last_log_time = start_time
+                last_points = 0
+                last_points_time = start_time
                 poll_count = 0
+                download_phase = True
+                indexing_phase = False
+                no_progress_count = 0
+                collection_appeared = False
                 
                 while True:
                     elapsed = time.time() - start_time
@@ -399,18 +518,70 @@ class SnapshotService:
                         )
                     
                     try:
-                        # Get collection status
+                        # Get collection status (may 404 during download phase - this is NORMAL)
                         check_client = self._get_client(timeout=10)
                         collection_info = check_client.get_collection(collection_name)
+                        
+                        # Collection exists now!
+                        if not collection_appeared:
+                            collection_appeared = True
+                            download_phase = False
+                            print(f"\n✅ Collection appeared! Server completed download & extraction")
+                        
                         status = collection_info.status
                         points = collection_info.points_count
                         
                         # Handle status check
                         status_str = str(status.value if hasattr(status, 'value') else status).lower()
                         
-                        # Log progress every 30 seconds
-                        if elapsed - last_log_time >= 30:
-                            print(f"⏱️  Status: {status_str.upper()} | Points: {points:,} | Elapsed: {int(elapsed)}s")
+                        # Detect phase transitions
+                        if download_phase and points > 0:
+                            download_phase = False
+                            indexing_phase = True
+                            print(f"\n✓ Download complete! Indexing started...")
+                            print(f"📊 Points appearing: {points:,}")
+                        
+                        # Track point growth to detect server activity
+                        points_growth = points - last_points
+                        if points_growth > 0:
+                            no_progress_count = 0  # Reset
+                            time_since_last_growth = elapsed - last_points_time
+                            growth_rate = points_growth / time_since_last_growth if time_since_last_growth > 0 else 0
+                            last_points = points
+                            last_points_time = elapsed
+                        else:
+                            no_progress_count += 1
+                        
+                        # Log progress every 15 seconds (more frequent for large files)
+                        if elapsed - last_log_time >= 15:
+                            if indexing_phase:
+                                # Show indexing progress with growth rate
+                                points_per_sec = points / elapsed if elapsed > 0 else 0
+                                
+                                # Build progress message
+                                progress_msg = f"📊 Status: {status_str.upper()} | Points: {points:,}"
+                                
+                                if points_per_sec > 0:
+                                    progress_msg += f" | Rate: {points_per_sec:,.0f}/sec"
+                                    
+                                    # Estimate remaining time if we're not green yet
+                                    if status_str in ["yellow", "red"]:
+                                        # Rough estimate: assume we need 2-3x current points
+                                        estimated_total_points = points * 2.5
+                                        remaining_points = max(0, estimated_total_points - points)
+                                        remaining_sec = remaining_points / points_per_sec if points_per_sec > 0 else 0
+                                        progress_msg += f" | Est. ~{int(remaining_sec/60)}m left"
+                                
+                                progress_msg += f" | Elapsed: {int(elapsed/60)}m"
+                                print(progress_msg)
+                                
+                                # Warn if no progress
+                                if no_progress_count > 4:  # No growth for 20+ seconds
+                                    print(f"   ⚠️  No new points for {no_progress_count * 5}s - server may be processing...")
+                            else:
+                                # Still in download phase
+                                print(f"⏳ Status: {status_str.upper()} | Points: {points:,} | Elapsed: {int(elapsed/60)}m")
+                            
                             last_log_time = elapsed
                         
                         if status_str == "green":
@@ -436,15 +607,103 @@ class SnapshotService:
                         poll_count += 1
                              
                     except Exception as e:
-                        # Collection might not exist yet during initial phase
-                        logger.debug(f"Polling check #{poll_count} failed: {e}")
+                        # Collection doesn't exist yet - server is downloading/extracting (this is NORMAL)
+                        # We expect 404s during this phase - don't spam the server!
+                        error_msg = str(e)
+                        
+                        # Only log at DEBUG level to avoid noise
+                        if "not found" in error_msg.lower() or "doesn't exist" in error_msg.lower():
+                            logger.debug(f"Collection not found yet (download phase) - poll #{poll_count}")
+                        else:
+                            logger.debug(f"Polling check #{poll_count} failed: {error_msg}")
+                        
+                        # Active download monitoring
                         if poll_count == 1:
-                            print(f"⏳ Waiting for collection to appear (Qdrant is processing snapshot)...")
-                        elif poll_count % 6 == 0:  # Every 30 seconds
-                            print(f"⏳ Still processing... ({int(elapsed)}s)")
+                            print(f"\n🔄 Server-side download started")
+                            if final_location.startswith("http://") or final_location.startswith("https://"):
+                                print(f"📥 Qdrant server is downloading from: {final_location}")
+                                print(f"⏳ This may take time depending on file size and network speed")
+                                print(f"💡 Collection will appear once download completes and extraction starts")
+                            else:
+                                print(f"📁 Qdrant server is loading from: {final_location}")
+                        
+                        # Show regular heartbeat to prove we're monitoring (but not too often!)
+                        elif elapsed - last_log_time >= 30:  # Every 30 seconds (reduced to avoid log spam)
+                            elapsed_min = elapsed / 60
+                            
+                            # Check if server is still alive and responding (use lightweight endpoint)
+                            server_alive = False
+                            try:
+                                # Use get_collections() instead of get_collection() to avoid 404 spam
+                                check_client.get_collections()
+                                server_alive = True
+                            except:
+                                pass
+                            
+                            if server_alive:
+                                # Server is responding - download/processing is happening
+                                if final_location.startswith("http://") or final_location.startswith("https://"):
+                                    print(f"📥 DOWNLOADING: {int(elapsed)}s ({elapsed_min:.1f}m) - Server is actively downloading...")
+                                else:
+                                    print(f"⚙️  PROCESSING: {int(elapsed)}s ({elapsed_min:.1f}m) - Server is extracting...")
+                            else:
+                                print(f"⚠️  WARNING: {int(elapsed)}s ({elapsed_min:.1f}m) - Server not responding!")
+                            
+                            last_log_time = elapsed
+                        
+                        # Provide detailed status after some time
+                        if elapsed > 300 and poll_count % 20 == 0:  # Every 100 seconds after 5 minutes
+                            elapsed_min = elapsed / 60
+                            print(f"\n📊 Status Report ({elapsed_min:.1f} minutes elapsed):")
+                            
+                            # Check server health
+                            try:
+                                check_client.get_collections()
+                                print(f"   ✅ Qdrant server is RESPONDING (download/processing is active)")
+                            except Exception as health_err:
+                                print(f"   ❌ Qdrant server NOT responding: {health_err}")
+                                print(f"   🔴 Recovery may have FAILED!")
+                            
+                            # Provide context based on location type
+                            if final_location.startswith("http://") or final_location.startswith("https://"):
+                                if not pre_download:
+                                    print(f"   📥 Server is downloading from remote URL")
+                                    print(f"   💡 TIP: Next time use pre_download=True for faster recovery!")
+                                    print(f"   ⏱️  Large files (7GB+) can take 15-60+ minutes to download")
+                                else:
+                                    print(f"   📁 Using pre-downloaded local file (faster!)")
+                                    print(f"   ⚙️  Server is extracting and indexing")
+                            else:
+                                print(f"   📁 Server is processing local snapshot")
+                                print(f"   ⚙️  Extracting and indexing vectors")
+                            
+                            print(f"   📌 Check server logs: docker logs <container> | grep -i snapshot")
+                            print(f"   📌 Collection will appear once first vectors are indexed")
+                            print()
+                        
+                        # Critical alert after very long wait
+                        if elapsed > 1800 and poll_count % 24 == 0:  # Every 2 minutes after 30 min
+                            print(f"\n🔴 ALERT: {int(elapsed/60)} minutes elapsed, collection still not appearing!")
+                            print(f"\n🔍 Diagnostic checks:")
+                            print(f"   1. Verify Qdrant server can reach URL:")
+                            print(f"      curl -I '{final_location}'")
+                            print(f"   2. Check Qdrant server logs:")
+                            print(f"      docker logs <container> -f | grep -i snapshot")
+                            print(f"   3. Check disk space:")
+                            print(f"      df -h (server needs 2x snapshot size)")
+                            print(f"   4. Check server is not OOM killed:")
+                            print(f"      dmesg | grep -i oom")
+                            print()
                     
                     poll_count += 1
-                    time.sleep(5)  # Poll interval
+                    
+                    # Adaptive poll interval: longer during download phase to reduce log spam
+                    if not collection_appeared:
+                        # During download phase: poll every 20 seconds (collection doesn't exist yet)
+                        time.sleep(20)
+                    else:
+                        # During indexing phase: poll every 5 seconds (monitoring point growth)
+                        time.sleep(5)
 
             logger.info(f"Collection '{collection_name}' recovery {'completed' if wait else 'initiated'}")
             return True
@@ -844,7 +1103,9 @@ class SnapshotService:
         checksum: Optional[str] = None,
         wait: bool = True,
         location_api_key: Optional[str] = None,
-        force_delete_existing: bool = False
+        force_delete_existing: bool = False,
+        pre_download: bool = False,
+        pre_download_path: Optional[str] = None
     ) -> bool:
         """
         Recover a collection from snapshot (static method).
@@ -852,6 +1113,10 @@ class SnapshotService:
         ⚠️ IMPORTANT: In distributed Qdrant clusters, if the collection already exists,
         recovery may be skipped even with priority="snapshot"! Set force_delete_existing=True
         to delete and recreate the collection.
+        
+        ⚡ PERFORMANCE TIP: For large snapshots (>1GB), set pre_download=True!
+        This downloads the snapshot locally first, then uses local path for recovery.
+        This is MUCH faster than letting Qdrant download from URL.
         
         Args:
             url: Qdrant server URL
@@ -865,6 +1130,8 @@ class SnapshotService:
             wait: Wait for completion
             location_api_key: API key for snapshot location
             force_delete_existing: Delete existing collection before recovery (DANGEROUS!)
+            pre_download: Pre-download snapshot locally first (RECOMMENDED for >1GB)
+            pre_download_path: Local path to save snapshot (default: temp directory)
         """
         service = SnapshotService._create_service(url, port, https, api_key)
         return service.recover_collection_snapshot_impl(
@@ -874,7 +1141,9 @@ class SnapshotService:
             checksum=checksum,
             wait=wait,
             location_api_key=location_api_key,
-            force_delete_existing=force_delete_existing
+            force_delete_existing=force_delete_existing,
+            pre_download=pre_download,
+            pre_download_path=pre_download_path
         )
     
     @staticmethod
