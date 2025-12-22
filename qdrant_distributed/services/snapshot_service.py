@@ -400,32 +400,10 @@ class SnapshotService:
             # if replicas are available, even with priority="snapshot"
             if not force_delete_existing:
                 error_msg = (
-                    f"\n{'='*70}\n"
-                    f"⚠️  CRITICAL: Collection '{collection_name}' already exists!\n"
-                    f"{'='*70}\n\n"
-                    f"📊 Current state:\n"
-                    f"   Points: {existing_points:,}\n"
-                    f"   Status: {collection_info.status}\n\n"
-                    f"🔴 In distributed Qdrant, recover_snapshot() will likely SKIP\n"
-                    f"   actual recovery and use existing replicas instead!\n\n"
-                    f"📋 Your options:\n\n"
-                    f"  1. RECOVER TO NEW NAME (Safest):\n"
-                    f"     → Recover as '{collection_name}_recovered'\n"
-                    f"     → Verify the data\n"
-                    f"     → Then handle the switchover\n\n"
-                    f"  2. FORCE DELETE & RECOVER (Risky):\n"
-                    f"     → Set force_delete_existing=True\n"
-                    f"     → Current data will be DELETED\n"
-                    f"     → Then recovered from snapshot\n\n"
-                    f"  3. LET QDRANT USE REPLICAS:\n"
-                    f"     → Keep existing data\n"
-                    f"     → Recovery will complete instantly\n"
-                    f"     → But NO data from snapshot!\n\n"
-                    f"{'='*70}\n"
-                    f"Refusing to proceed. Set force_delete_existing=True if you're certain.\n"
-                    f"{'='*70}\n"
+                    f"Collection '{collection_name}' already exists with {existing_points:,} points. "
+                    f"Set force_delete_existing=True to delete and recover from snapshot."
                 )
-                logger.error(error_msg)
+                logger.warning(error_msg)
                 raise ValueError(error_msg)
             
             # User confirmed - delete existing collection
@@ -481,17 +459,44 @@ class SnapshotService:
                 print(f"   2. Index all vectors")
             print()
             
-            # Force async recovery on server side to avoid timeouts
-            client.recover_snapshot(
-                collection_name=collection_name,
-                location=final_location,
-                priority=priority_value,
-                checksum=checksum,
-                wait=False,
-                api_key=location_api_key
-            )
+            # Use direct REST API for better control over wait=false and api_key handling
+            # This avoids gateway timeouts and properly handles authenticated snapshot URLs
+            protocol = "https" if self._https else "http"
+            base_url = f"{protocol}://{self._url}:{self._port}"
+            recover_url = f"{base_url}/collections/{collection_name}/snapshots/recover?wait=false"
             
-            print(f"✓ Recovery request sent to Qdrant")
+            payload = {
+                "location": final_location,
+            }
+            
+            if priority_value:
+                payload["priority"] = priority_value
+            
+            if checksum:
+                payload["checksum"] = checksum
+            
+            # Pass API key for authenticated snapshot downloads (e.g., from authenticated Qdrant servers)
+            if location_api_key:
+                payload["api_key"] = location_api_key
+            
+            headers = self._get_headers()
+            
+            logger.info(f"Sending recovery request to {recover_url}")
+            response = requests.put(recover_url, json=payload, headers=headers, timeout=30)
+            
+            if not response.ok:
+                error_msg = f"Recovery request failed: {response.status_code}"
+                try:
+                    error_detail = response.json()
+                    error_msg += f" - {error_detail}"
+                except:
+                    error_msg += f" - {response.text}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+            response.raise_for_status()
+            
+            print(f"✓ Recovery request sent to Qdrant (running in background)")
             logger.info("Recovery request submitted successfully")
             
             if wait:

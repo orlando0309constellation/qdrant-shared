@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: Qdrant Cluster Manager - CLI and Desktop GUI for managing Qdrant distributed clusters
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
+License-File: LICENSE.txt
 Requires-Dist: python-dotenv>=1.2.1
 Requires-Dist: qdrant-client>=1.16.0
 Requires-Dist: requests>=2.31.0
@@ -18,6 +19,7 @@ Requires-Dist: pymongo>=4.15.4; extra == "all-db"
 Requires-Dist: mysql-connector-python>=8.2.0; extra == "all-db"
 Provides-Extra: build
 Requires-Dist: pyinstaller>=6.0.0; extra == "build"
+Dynamic: license-file
 
 # Qdrant Cluster Manager CLI
 

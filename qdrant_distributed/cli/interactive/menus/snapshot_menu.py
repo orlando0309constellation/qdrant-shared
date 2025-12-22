@@ -338,8 +338,62 @@ class SnapshotMenu(BaseMenu):
             self.ui.pause()
             return
         
+        # Check if collection exists and handle it
+        force_delete = False
         try:
             from qdrant_distributed.services.snapshot_service import SnapshotService
+            from qdrant_client import QdrantClient
+            
+            # Check if collection exists on target
+            check_client = QdrantClient(
+                url=config.url,
+                port=config.port,
+                https=config.https,
+                api_key=config.api_key,
+                timeout=10
+            )
+            
+            try:
+                collection_info = check_client.get_collection(collection_name)
+                points = collection_info.points_count
+                
+                self.console.print()
+                self.console.print(Panel(
+                    f"[bold yellow]⚠️  Collection '{collection_name}' already exists![/bold yellow]\n\n"
+                    f"Points: {points:,}\n"
+                    f"Status: {collection_info.status}\n\n"
+                    f"[bold]What do you want to do?[/bold]",
+                    style="yellow"
+                ))
+                self.console.print()
+                self.console.print("[dim]Options:[/dim]")
+                self.console.print("  1. [red]DELETE existing and recover from snapshot[/red]")
+                self.console.print("  2. [yellow]Try recovery (Qdrant may use existing replicas instead)[/yellow]")
+                self.console.print("  3. [cyan]Cancel[/cyan]")
+                self.console.print()
+                
+                choice = Prompt.ask("Your choice", choices=["1", "2", "3"], default="3")
+                
+                if choice == "1":
+                    self.console.print()
+                    confirm_delete = Confirm.ask(
+                        f"[bold red]⚠️  DELETE {points:,} points and recover from snapshot?[/bold red]",
+                        default=False
+                    )
+                    if not confirm_delete:
+                        self.ui.show_info("Recovery cancelled")
+                        self.ui.pause()
+                        return
+                    force_delete = True
+                elif choice == "2":
+                    force_delete = False
+                else:
+                    self.ui.show_info("Recovery cancelled")
+                    self.ui.pause()
+                    return
+            except:
+                # Collection doesn't exist - perfect!
+                pass
             
             self.run_with_spinner(
                 "Recovering collection (this may take a while)...",
@@ -347,7 +401,8 @@ class SnapshotMenu(BaseMenu):
                 config.url, config.port, config.https, config.api_key,
                 collection_name, location,
                 priority=priority,
-                location_api_key=source_api_key
+                location_api_key=source_api_key,
+                force_delete_existing=force_delete
             )
             
             self.ui.show_success(f"Collection '{collection_name}' recovered successfully!")
