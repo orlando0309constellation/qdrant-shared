@@ -1581,9 +1581,27 @@ async def check_collections_sync(qdrant_manager: MultiQdrantManager, check_count
                     synced_collections.append(collection_id)
                     _log_with_callbacks("info", f"  Collection {collection_id}: ✅ Counts match ({source_count} documents)")
             else:
-                # Just check if collection exists in target
-                synced_collections.append(collection_id)
-                _log_with_callbacks("info", f"  Collection {collection_id}: ✅ Exists in target")
+                # Just check if collection exists in target (verify by trying to count)
+                _log_with_callbacks("debug", f"  Collection {collection_id}: Checking if exists in target...")
+                try:
+                    # Verify collection exists by attempting to count (even if we don't use the count)
+                    target_client.count(
+                        collection_name=SHARED_COLLECTION_NAME,
+                        count_filter=models.Filter(
+                            must=[
+                                models.FieldCondition(
+                                    key="collection_id",
+                                    match=models.MatchValue(value=collection_id)
+                                )
+                            ]
+                        )
+                    )
+                    synced_collections.append(collection_id)
+                    _log_with_callbacks("info", f"  Collection {collection_id}: ✅ Exists in target")
+                except Exception as e:
+                    # Collection doesn't exist or error accessing it
+                    missing_collections.append(collection_id)
+                    _log_with_callbacks("warning", f"  Collection {collection_id}: ⚠️ Not found in target: {type(e).__name__}: {str(e)}")
                 
         except Exception as e:
             error_msg = f"Error checking collection {collection_id}: {type(e).__name__}: {str(e)}"

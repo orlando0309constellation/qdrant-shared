@@ -508,7 +508,7 @@ def main() -> int:
                         print("=" * 80)
                     
                 elif args.migrate_check:
-                    check_count = getattr(args, 'check_count', False)
+                    check_count = getattr(args, 'check_count', True)
                     if use_rich and console:
                         console.print(f"[bold cyan]✓ Running in CHECK mode - checking synchronization[/bold cyan] [dim](count: {check_count})[/dim]")
                         console.print()
