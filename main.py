@@ -10,11 +10,25 @@ Documentation: https://api.qdrant.tech/master/api-reference/distributed/update-c
 import os
 import sys
 import asyncio
+import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Early parse for --env flag (before heavy imports that depend on environment variables)
+# Create a minimal parser just for --env
+_early_parser = argparse.ArgumentParser(add_help=False)
+_early_parser.add_argument("--env", type=str, help="Path to custom .env file")
+_early_args, _ = _early_parser.parse_known_args()
+
+# Load custom .env file if specified, otherwise load default
+if _early_args.env:
+    env_path = Path(_early_args.env)
+    if not env_path.exists():
+        print(f"Error: Environment file not found: {env_path.absolute()}", file=sys.stderr)
+        sys.exit(1)
+    load_dotenv(dotenv_path=env_path, override=True)
+else:
+    load_dotenv()
 
 
 from qdrant_distributed.constant import SHARED_COLLECTION_NAME

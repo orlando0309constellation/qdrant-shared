@@ -8,8 +8,8 @@ import os
 from typing import Optional
 from dotenv import load_dotenv
 
-# Load environment variables once at module level
-load_dotenv()
+# Load environment variables once at module level (don't override if already loaded)
+load_dotenv(override=False)
 
 # Lazy import to avoid circular dependencies
 _config_service = None

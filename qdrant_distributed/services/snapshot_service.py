@@ -95,8 +95,8 @@ class SnapshotService:
     
     # Default timeouts (in seconds)
     DEFAULT_TIMEOUT = 60
-    SNAPSHOT_TIMEOUT = 3600  # 1 hour for snapshot operations
-    DOWNLOAD_TIMEOUT = 3600
+    SNAPSHOT_TIMEOUT = 3600*3  # 1 hour for snapshot operations
+    DOWNLOAD_TIMEOUT = 3600*8
     
     # ========================================================================
     # Initialization and Client Management
@@ -379,58 +379,67 @@ class SnapshotService:
                 print(f"   📥 Will use direct URL recovery (slower)")
                 final_location = location
         
-        client = self._get_client(timeout=self._snapshot_timeout)
+        # Build URLs for REST API
+        protocol = "https" if self._https else "http"
+        base_url = f"{protocol}://{self._url}:{self._port}"
+        collection_url = f"{base_url}/collections/{collection_name}"
+        headers = self._get_headers()
         
-        # CRITICAL: Check if collection exists
+        # CRITICAL: Check if collection exists using REST API
         collection_exists = False
         existing_points = 0
-        initial_points_count = 0
         
         try:
-            collection_info = client.get_collection(collection_name)
-            collection_exists = True
-            existing_points = collection_info.points_count
-            initial_points_count = existing_points
-            
-            logger.warning(
-                f"Collection '{collection_name}' already exists with {existing_points:,} points"
-            )
-            
-            # In distributed Qdrant, recover_snapshot will likely SKIP actual recovery
-            # if replicas are available, even with priority="snapshot"
-            if not force_delete_existing:
-                error_msg = (
-                    f"Collection '{collection_name}' already exists with {existing_points:,} points. "
-                    f"Set force_delete_existing=True to delete and recover from snapshot."
+            resp = requests.get(collection_url, headers=headers, timeout=10)
+            if resp.ok:
+                collection_exists = True
+                result = resp.json().get("result", {})
+                existing_points = result.get("points_count", 0)
+                
+                logger.warning(
+                    f"Collection '{collection_name}' already exists with {existing_points:,} points"
                 )
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            # User confirmed - delete existing collection
-            logger.warning("force_delete_existing=True - DELETING existing collection!")
-            print(f"\n⚠️  DELETING collection '{collection_name}' with {existing_points:,} points...")
-            
-            client.delete_collection(collection_name)
-            logger.info(f"Collection '{collection_name}' deleted")
-            print(f"✓ Collection deleted")
-            
-            # Wait for deletion to propagate across cluster
-            print(f"⏳ Waiting for deletion to propagate (5 seconds)...")
-            time.sleep(5)
-            print(f"✓ Ready for recovery\n")
-            
-        except Exception as e:
-            if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+                
+                # In distributed Qdrant, recover_snapshot will likely SKIP actual recovery
+                # if replicas are available, even with priority="snapshot"
+                if not force_delete_existing:
+                    error_msg = (
+                        f"Collection '{collection_name}' already exists with {existing_points:,} points. "
+                        f"Set force_delete_existing=True to delete and recover from snapshot."
+                    )
+                    logger.warning(error_msg)
+                    raise ValueError(error_msg)
+                
+                # User confirmed - delete existing collection
+                logger.warning("force_delete_existing=True - DELETING existing collection!")
+                print(f"\n⚠️  DELETING collection '{collection_name}' with {existing_points:,} points...")
+                
+                # Delete using REST API
+                delete_resp = requests.delete(collection_url, headers=headers, timeout=30)
+                delete_resp.raise_for_status()
+                
+                logger.info(f"Collection '{collection_name}' deleted")
+                print(f"✓ Collection deleted")
+                
+                # Wait for deletion to propagate across cluster
+                print(f"⏳ Waiting for deletion to propagate (5 seconds)...")
+                time.sleep(5)
+                print(f"✓ Ready for recovery\n")
+            else:
                 # Collection doesn't exist - perfect!
                 logger.info(f"Collection '{collection_name}' does not exist - will create from snapshot")
                 collection_exists = False
-            elif isinstance(e, ValueError):
-                # Our own error about existing collection
-                raise
-            else:
-                # Some other error
-                logger.error(f"Error checking collection: {e}")
-                raise
+                
+        except requests.exceptions.RequestException as e:
+            # Network error or collection not found
+            logger.info(f"Collection '{collection_name}' does not exist - will create from snapshot")
+            collection_exists = False
+        except ValueError:
+            # Our own error about existing collection
+            raise
+        except Exception as e:
+            logger.error(f"Error checking collection: {e}")
+            raise
         
         # Convert string priority to enum if needed
         priority_value = None
@@ -461,8 +470,6 @@ class SnapshotService:
             
             # Use direct REST API for better control over wait=false and api_key handling
             # This avoids gateway timeouts and properly handles authenticated snapshot URLs
-            protocol = "https" if self._https else "http"
-            base_url = f"{protocol}://{self._url}:{self._port}"
             recover_url = f"{base_url}/collections/{collection_name}/snapshots/recover?wait=false"
             
             payload = {
@@ -478,8 +485,6 @@ class SnapshotService:
             # Pass API key for authenticated snapshot downloads (e.g., from authenticated Qdrant servers)
             if location_api_key:
                 payload["api_key"] = location_api_key
-            
-            headers = self._get_headers()
             
             logger.info(f"Sending recovery request to {recover_url}")
             response = requests.put(recover_url, json=payload, headers=headers, timeout=30)
@@ -502,213 +507,47 @@ class SnapshotService:
             if wait:
                 print(f"\n📊 Monitoring recovery progress...")
                 logger.info(f"Monitoring collection '{collection_name}' recovery...")
+                
+                # Simple polling loop like test.py (collection_url already defined above)
                 start_time = time.time()
                 last_log_time = start_time
-                last_points = 0
-                last_points_time = start_time
                 poll_count = 0
-                download_phase = True
-                indexing_phase = False
-                no_progress_count = 0
-                collection_appeared = False
                 
-                while True:
-                    elapsed = time.time() - start_time
-                    
-                    # Check timeout
-                    if elapsed > self._snapshot_timeout:
-                        raise TimeoutError(
-                            f"Timed out waiting for collection '{collection_name}' recovery "
-                            f"after {self._snapshot_timeout} seconds ({self._snapshot_timeout/60:.0f} minutes)"
-                        )
-                    
+                for _ in range(self._snapshot_timeout // 5):
                     try:
-                        # Get collection status (may 404 during download phase - this is NORMAL)
-                        check_client = self._get_client(timeout=10)
-                        collection_info = check_client.get_collection(collection_name)
+                        resp = requests.get(collection_url, headers=headers, timeout=10)
+                        if resp.ok and resp.json().get("result", {}).get("status") in ("green", "ok"):
+                            elapsed = time.time() - start_time
+                            msg = f"✅ Recovery complete! ({int(elapsed)}s)"
+                            print(msg)
+                            logger.info(f"Collection '{collection_name}' is ready (status: GREEN) after {elapsed:.1f}s")
+                            return True
                         
-                        # Collection exists now!
-                        if not collection_appeared:
-                            collection_appeared = True
-                            download_phase = False
-                            print(f"\n✅ Collection appeared! Server completed download & extraction")
-                        
-                        status = collection_info.status
-                        points = collection_info.points_count
-                        
-                        # Handle status check
-                        status_str = str(status.value if hasattr(status, 'value') else status).lower()
-                        
-                        # Detect phase transitions
-                        if download_phase and points > 0:
-                            download_phase = False
-                            indexing_phase = True
-                            print(f"\n✓ Download complete! Indexing started...")
-                            print(f"📊 Points appearing: {points:,}")
-                        
-                        # Track point growth to detect server activity
-                        points_growth = points - last_points
-                        if points_growth > 0:
-                            no_progress_count = 0  # Reset
-                            time_since_last_growth = elapsed - last_points_time
-                            growth_rate = points_growth / time_since_last_growth if time_since_last_growth > 0 else 0
-                            last_points = points
-                            last_points_time = elapsed
-                        else:
-                            no_progress_count += 1
-                        
-                        # Log progress every 15 seconds (more frequent for large files)
-                        if elapsed - last_log_time >= 15:
-                            if indexing_phase:
-                                # Show indexing progress with growth rate
-                                points_per_sec = points / elapsed if elapsed > 0 else 0
-                                
-                                # Build progress message
-                                progress_msg = f"📊 Status: {status_str.upper()} | Points: {points:,}"
-                                
-                                if points_per_sec > 0:
-                                    progress_msg += f" | Rate: {points_per_sec:,.0f}/sec"
-                                    
-                                    # Estimate remaining time if we're not green yet
-                                    if status_str in ["yellow", "red"]:
-                                        # Rough estimate: assume we need 2-3x current points
-                                        estimated_total_points = points * 2.5
-                                        remaining_points = max(0, estimated_total_points - points)
-                                        remaining_sec = remaining_points / points_per_sec if points_per_sec > 0 else 0
-                                        progress_msg += f" | Est. ~{int(remaining_sec/60)}m left"
-                                
-                                progress_msg += f" | Elapsed: {int(elapsed/60)}m"
-                                print(progress_msg)
-                                
-                                # Warn if no progress
-                                if no_progress_count > 4:  # No growth for 20+ seconds
-                                    print(f"   ⚠️  No new points for {no_progress_count * 5}s - server may be processing...")
-                            else:
-                                # Still in download phase
-                                print(f"⏳ Status: {status_str.upper()} | Points: {points:,} | Elapsed: {int(elapsed/60)}m")
-                            
+                        # Show progress every 30 seconds
+                        elapsed = time.time() - start_time
+                        if elapsed - last_log_time >= 30:
+                            result = resp.json().get("result", {})
+                            status = result.get("status", "unknown")
+                            points = result.get("points_count", 0)
+                            msg = f"⏳ Status: {status} | Points: {points:,} | Elapsed: {int(elapsed)}s"
+                            print(msg)
+                            logger.info(msg)
                             last_log_time = elapsed
-                        
-                        if status_str == "green":
-                            print(f"\n✅ Collection '{collection_name}' recovered successfully!")
-                            print(f"📊 Final points: {points:,}")
-                            print(f"⏱️  Total time: {int(elapsed)} seconds ({elapsed/60:.1f} minutes)\n")
                             
-                            # CRITICAL CHECK: Did recovery actually happen?
-                            if collection_exists and points == existing_points and elapsed < 5:
-                                logger.error(
-                                    f"SUSPICIOUS: Collection recovered in {elapsed}s with same point count! "
-                                    f"Recovery may have been skipped!"
-                                )
-                                print(f"⚠️  WARNING: Recovery completed suspiciously fast ({elapsed}s)")
-                                print(f"⚠️  Points unchanged: {points:,}")
-                                print(f"⚠️  This suggests Qdrant used existing replicas instead of snapshot!")
-                                print(f"⚠️  Verify the data is actually from the snapshot!\n")
-                            
-                            logger.info(f"Collection '{collection_name}' is ready (status: GREEN)")
-                            break
-                        
-                        logger.debug(f"Collection status: {status_str}, points: {points}")
-                        poll_count += 1
-                             
                     except Exception as e:
-                        # Collection doesn't exist yet - server is downloading/extracting (this is NORMAL)
-                        # We expect 404s during this phase - don't spam the server!
-                        error_msg = str(e)
-                        
-                        # Only log at DEBUG level to avoid noise
-                        if "not found" in error_msg.lower() or "doesn't exist" in error_msg.lower():
-                            logger.debug(f"Collection not found yet (download phase) - poll #{poll_count}")
-                        else:
-                            logger.debug(f"Polling check #{poll_count} failed: {error_msg}")
-                        
-                        # Active download monitoring
-                        if poll_count == 1:
-                            print(f"\n🔄 Server-side download started")
-                            if final_location.startswith("http://") or final_location.startswith("https://"):
-                                print(f"📥 Qdrant server is downloading from: {final_location}")
-                                print(f"⏳ This may take time depending on file size and network speed")
-                                print(f"💡 Collection will appear once download completes and extraction starts")
-                            else:
-                                print(f"📁 Qdrant server is loading from: {final_location}")
-                        
-                        # Show regular heartbeat to prove we're monitoring (but not too often!)
-                        elif elapsed - last_log_time >= 30:  # Every 30 seconds (reduced to avoid log spam)
-                            elapsed_min = elapsed / 60
-                            
-                            # Check if server is still alive and responding (use lightweight endpoint)
-                            server_alive = False
-                            try:
-                                # Use get_collections() instead of get_collection() to avoid 404 spam
-                                check_client.get_collections()
-                                server_alive = True
-                            except:
-                                pass
-                            
-                            if server_alive:
-                                # Server is responding - download/processing is happening
-                                if final_location.startswith("http://") or final_location.startswith("https://"):
-                                    print(f"📥 DOWNLOADING: {int(elapsed)}s ({elapsed_min:.1f}m) - Server is actively downloading...")
-                                else:
-                                    print(f"⚙️  PROCESSING: {int(elapsed)}s ({elapsed_min:.1f}m) - Server is extracting...")
-                            else:
-                                print(f"⚠️  WARNING: {int(elapsed)}s ({elapsed_min:.1f}m) - Server not responding!")
-                            
-                            last_log_time = elapsed
-                        
-                        # Provide detailed status after some time
-                        if elapsed > 300 and poll_count % 20 == 0:  # Every 100 seconds after 5 minutes
-                            elapsed_min = elapsed / 60
-                            print(f"\n📊 Status Report ({elapsed_min:.1f} minutes elapsed):")
-                            
-                            # Check server health
-                            try:
-                                check_client.get_collections()
-                                print(f"   ✅ Qdrant server is RESPONDING (download/processing is active)")
-                            except Exception as health_err:
-                                print(f"   ❌ Qdrant server NOT responding: {health_err}")
-                                print(f"   🔴 Recovery may have FAILED!")
-                            
-                            # Provide context based on location type
-                            if final_location.startswith("http://") or final_location.startswith("https://"):
-                                if not pre_download:
-                                    print(f"   📥 Server is downloading from remote URL")
-                                    print(f"   💡 TIP: Next time use pre_download=True for faster recovery!")
-                                    print(f"   ⏱️  Large files (7GB+) can take 15-60+ minutes to download")
-                                else:
-                                    print(f"   📁 Using pre-downloaded local file (faster!)")
-                                    print(f"   ⚙️  Server is extracting and indexing")
-                            else:
-                                print(f"   📁 Server is processing local snapshot")
-                                print(f"   ⚙️  Extracting and indexing vectors")
-                            
-                            print(f"   📌 Check server logs: docker logs <container> | grep -i snapshot")
-                            print(f"   📌 Collection will appear once first vectors are indexed")
-                            print()
-                        
-                        # Critical alert after very long wait
-                        if elapsed > 1800 and poll_count % 24 == 0:  # Every 2 minutes after 30 min
-                            print(f"\n🔴 ALERT: {int(elapsed/60)} minutes elapsed, collection still not appearing!")
-                            print(f"\n🔍 Diagnostic checks:")
-                            print(f"   1. Verify Qdrant server can reach URL:")
-                            print(f"      curl -I '{final_location}'")
-                            print(f"   2. Check Qdrant server logs:")
-                            print(f"      docker logs <container> -f | grep -i snapshot")
-                            print(f"   3. Check disk space:")
-                            print(f"      df -h (server needs 2x snapshot size)")
-                            print(f"   4. Check server is not OOM killed:")
-                            print(f"      dmesg | grep -i oom")
-                            print()
+                        # Collection doesn't exist yet or error - log occasionally
+                        elapsed = time.time() - start_time
+                        if poll_count % 6 == 0:  # Every 30 seconds (6 * 5s)
+                            msg = f"⏳ Downloading/processing snapshot... Elapsed: {int(elapsed)}s"
+                            print(msg)
+                            logger.info(msg)
+                        poll_count += 1
                     
-                    poll_count += 1
-                    
-                    # Adaptive poll interval: longer during download phase to reduce log spam
-                    if not collection_appeared:
-                        # During download phase: poll every 20 seconds (collection doesn't exist yet)
-                        time.sleep(20)
-                    else:
-                        # During indexing phase: poll every 5 seconds (monitoring point growth)
-                        time.sleep(5)
+                    time.sleep(5)
+                
+                raise TimeoutError(
+                    f"Recovery timeout after {self._snapshot_timeout} seconds"
+                )
 
             logger.info(f"Collection '{collection_name}' recovery {'completed' if wait else 'initiated'}")
             return True
@@ -1290,3 +1129,4 @@ class SnapshotService:
         """
         service = SnapshotService._create_service(url, port, https, api_key)
         return service.get_snapshot_download_url(collection_name, snapshot_name)
+

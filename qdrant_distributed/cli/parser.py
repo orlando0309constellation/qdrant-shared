@@ -50,6 +50,10 @@ Examples:
   # Reverse migration (from target to source)
   qdrant-shard --migrate --reverse
 
+  # Use custom environment file
+  qdrant-shard --migrate --env .env.teste
+  qdrant-shard --migrate-check --env .env.production
+
   # === SNAPSHOT OPERATIONS ===
   # List snapshots for a collection (using env vars QDRANT_URL, QDRANT_PORT)
   qdrant-shard --snap-list -c my_collection
@@ -293,6 +297,11 @@ Available recovery priorities:
         dest="migrate_https",
         action="store_false",
         help="Disable HTTPS for migration connections"
+    )
+    parser.add_argument(
+        "--env",
+        type=str,
+        help="Path to custom .env file (default: .env in current directory)"
     )
 
     
