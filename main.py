@@ -446,6 +446,7 @@ def main() -> int:
                         summary.add_column("Value", style="bold white")
                         summary.add_row("Status", "[bold green]✓ Completed[/bold green]")
                         summary.add_row("Elapsed time", f"[yellow]{elapsed_str}[/yellow]")
+                        summary.add_row("Collections found in MySQL", f"[cyan]{result.get('total_collections', 0)}[/cyan]")
                         summary.add_row("Total documents migrated", f"[green]{result.get('total_documents', 0):,}[/green]")
                         summary.add_row("Successful collections", f"[green]{len(result.get('successful_collections', []))}[/green]")
                         if result.get('failed_collections'):
@@ -455,6 +456,7 @@ def main() -> int:
                         print("=" * 80)
                         print("[+] Migration completed!")
                         print(f"Elapsed time: {elapsed_str}")
+                        print(f"Collections found in MySQL: {result.get('total_collections', 0)}")
                         print(f"Total documents migrated: {result.get('total_documents', 0)}")
                         print(f"Successful collections: {len(result.get('successful_collections', []))}")
                         if result.get('failed_collections'):
@@ -492,6 +494,9 @@ def main() -> int:
                         summary.add_column("Value", style="bold white")
                         summary.add_row("Status", "[bold green]✓ Completed[/bold green]")
                         summary.add_row("Elapsed time", f"[yellow]{elapsed_str}[/yellow]")
+                        summary.add_row("Collections found in MySQL", f"[cyan]{result.get('total_collections', 0)}[/cyan]")
+                        if result.get('already_synced', 0) > 0:
+                            summary.add_row("Already synchronized", f"[green]{result.get('already_synced', 0)}[/green]")
                         summary.add_row("Total documents migrated", f"[green]{result.get('total_documents', 0):,}[/green]")
                         summary.add_row("Successful collections", f"[green]{len(result.get('successful_collections', []))}[/green]")
                         if result.get('failed_collections'):
@@ -501,6 +506,9 @@ def main() -> int:
                         print("=" * 80)
                         print("[+] Migration completed!")
                         print(f"Elapsed time: {elapsed_str}")
+                        print(f"Collections found in MySQL: {result.get('total_collections', 0)}")
+                        if result.get('already_synced', 0) > 0:
+                            print(f"Already synchronized: {result.get('already_synced', 0)}")
                         print(f"Total documents migrated: {result.get('total_documents', 0)}")
                         print(f"Successful collections: {len(result.get('successful_collections', []))}")
                         if result.get('failed_collections'):
@@ -537,8 +545,11 @@ def main() -> int:
                         summary.add_column("Value", style="bold white")
                         summary.add_row("Status", "[bold green]✓ Check Completed[/bold green]")
                         summary.add_row("Elapsed time", f"[yellow]{elapsed_str}[/yellow]")
+                        summary.add_row("Collections found in MySQL", f"[cyan]{result.get('total_collections', 0)}[/cyan]")
+                        if result.get('synced_collections'):
+                            summary.add_row("Synchronized collections", f"[green]{len(result.get('synced_collections', []))}[/green]")
                         if result.get('missing_collections'):
-                            summary.add_row("Missing collections", f"[red]{result.get('missing_collections')}[/red]")
+                            summary.add_row("Missing collections", f"[red]{len(result.get('missing_collections', []))}[/red]")
                         if result.get('collections_with_missing_points'):
                             summary.add_row("Collections with missing points", f"[yellow]{len(result.get('collections_with_missing_points', []))}[/yellow]")
                             total_missing = result.get('total_missing_points', 0)
@@ -551,8 +562,11 @@ def main() -> int:
                         print("=" * 80)
                         print("[+] Synchronization check completed!")
                         print(f"Elapsed time: {elapsed_str}")
+                        print(f"Collections found in MySQL: {result.get('total_collections', 0)}")
+                        if result.get('synced_collections'):
+                            print(f"Synchronized collections: {len(result.get('synced_collections', []))}")
                         if result.get('missing_collections'):
-                            print(f"Missing collections: {result.get('missing_collections')}")
+                            print(f"Missing collections: {len(result.get('missing_collections', []))}")
                         if result.get('collections_with_missing_points'):
                             print(f"Collections with missing points: {len(result.get('collections_with_missing_points', []))}")
                             total_missing = result.get('total_missing_points', 0)
