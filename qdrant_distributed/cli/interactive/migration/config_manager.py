@@ -78,6 +78,10 @@ class MigrationConfigManager:
             self.console.print()
             reverse = Confirm.ask("Reverse migration direction?", default=False)
         
+        # AI summaries
+        self.console.print()
+        enable_ai = Confirm.ask("Enable AI-generated summaries?", default=True)
+        
         # Create config
         return MigrationConfig(
             name=name,
@@ -95,7 +99,8 @@ class MigrationConfigManager:
             mysql_password=mysql_config.get('password') if mysql_config else None,
             mysql_database=mysql_config.get('database') if mysql_config else None,
             use_default_mysql=use_default,
-            reverse=reverse
+            reverse=reverse,
+            enable_ai=enable_ai
         )
     
     def edit(self, config: MigrationConfig, mode: str) -> MigrationConfig:
@@ -119,6 +124,7 @@ class MigrationConfigManager:
             ("target", "🟢 Edit Target Qdrant"),
             ("mysql", "🗄️  Edit MySQL"),
             ("reverse", "🔄 Toggle Reverse"),
+            ("ai", "🤖 Toggle AI Summaries"),
             ("done", "✅ Done Editing")
         ]
         
@@ -138,7 +144,8 @@ class MigrationConfigManager:
             mysql_password=config.mysql_password,
             mysql_database=config.mysql_database,
             use_default_mysql=config.use_default_mysql,
-            reverse=config.reverse
+            reverse=config.reverse,
+            enable_ai=getattr(config, 'enable_ai', True)
         )
         
         while True:
@@ -176,6 +183,10 @@ class MigrationConfigManager:
                 edited_config.reverse = not edited_config.reverse
                 status = "enabled" if edited_config.reverse else "disabled"
                 ui.show_success(f"Reverse migration {status}")
+            elif choice == "ai":
+                edited_config.enable_ai = not edited_config.enable_ai
+                status = "enabled" if edited_config.enable_ai else "disabled"
+                ui.show_success(f"AI summaries {status}")
             elif choice == "done":
                 break
             
@@ -206,6 +217,8 @@ class MigrationConfigManager:
         table.add_row("", "")  # Spacer
         table.add_row("MySQL", mysql_info)
         table.add_row("Reverse Migration", reverse_text)
+        ai_status = "[green]Enabled[/green]" if getattr(config, 'enable_ai', True) else "[yellow]Disabled[/yellow]"
+        table.add_row("AI Summaries", ai_status)
         
         self.console.print(table)
 

@@ -615,10 +615,13 @@ class MigrationDialog:
         
         self.reverse_var = tk.BooleanVar(value=False)
         self.https_var = tk.BooleanVar(value=get_qdrant_https(default=True))
+        self.enable_ai_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(options_frame, text="Reverse Migration", 
                        variable=self.reverse_var).pack(anchor=tk.W, pady=2)
         ttk.Checkbutton(options_frame, text="Use HTTPS", 
                        variable=self.https_var).pack(anchor=tk.W, pady=2)
+        ttk.Checkbutton(options_frame, text="Enable AI-generated summaries", 
+                       variable=self.enable_ai_var).pack(anchor=tk.W, pady=2)
         
         # Execute Button
         button_frame = ttk.Frame(options_tab)
@@ -1033,6 +1036,7 @@ class MigrationDialog:
         mode = self.mode_var.get()
         reverse = self.reverse_var.get()
         https = self.https_var.get()
+        enable_ai = self.enable_ai_var.get()
         
         # Execute migration
         self.migration_controller.execute_migration(
@@ -1041,6 +1045,7 @@ class MigrationDialog:
             mysql_config=mysql_config,
             mode=mode,
             reverse=reverse,
-            https=https
+            https=https,
+            enable_ai=enable_ai
         )
 

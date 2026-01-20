@@ -79,6 +79,9 @@ class MigrationExecutor:
             target_config = mig_config.get_target_config()
             mysql_config = mig_config.get_mysql_config()
             reverse = mig_config.reverse
+            enable_ai = getattr(mig_config, 'enable_ai', True)
+            # Set embedding_callback to None when AI is disabled
+            embedding_callback = None if not enable_ai else None  # Currently always None, but explicit for future use
             
             # Execute migration
             from qdrant_distributed.operations.migration_operations import MigrationOperations
@@ -230,7 +233,7 @@ class MigrationExecutor:
             # Run migration based on mode
             self._run_migration(
                 mode, migration_ops, source_config, target_config, 
-                mysql_config, reverse, progress_callback, status_callback, start_time
+                mysql_config, reverse, progress_callback, embedding_callback, status_callback, start_time
             )
             
         except KeyboardInterrupt:
@@ -279,7 +282,7 @@ class MigrationExecutor:
         self.ui.pause()
     
     def _run_migration(self, mode, migration_ops, source_config, target_config, 
-                      mysql_config, reverse, progress_callback, status_callback, start_time):
+                      mysql_config, reverse, progress_callback, embedding_callback, status_callback, start_time):
         """Run migration based on mode."""
         if mode == "check":
             self.console.print("[bold cyan]🔍 Running in CHECK mode - checking synchronization[/bold cyan]")
@@ -309,6 +312,7 @@ class MigrationExecutor:
                         mysql_config=mysql_config,
                         reverse=reverse,
                         progress_callback=progress_callback,
+                        embedding_callback=embedding_callback,
                         status_callback=status_callback
                     )
                 )
@@ -327,6 +331,7 @@ class MigrationExecutor:
                         mysql_config=mysql_config,
                         reverse=reverse,
                         progress_callback=progress_callback,
+                        embedding_callback=embedding_callback,
                         status_callback=status_callback
                     )
                 )

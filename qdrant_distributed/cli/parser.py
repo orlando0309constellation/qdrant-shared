@@ -287,6 +287,12 @@ Available recovery priorities:
         help="Reverse migration direction: migrate from target to source instead of source to target"
     )
     parser.add_argument(
+        "--no-ai",
+        action="store_true",
+        dest="no_ai",
+        help="Disable AI-generated summaries during migration"
+    )
+    parser.add_argument(
         "--migrate-https",
         action="store_true",
         default=True,

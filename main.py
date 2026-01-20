@@ -214,6 +214,10 @@ def main() -> int:
             https_status = "[green]Enabled[/green]" if https else "[yellow]Disabled[/yellow]"
             info_table.add_row("HTTPS", https_status)
             
+            no_ai = getattr(args, 'no_ai', False)
+            ai_status = "[yellow]Disabled[/yellow]" if no_ai else "[green]Enabled[/green]"
+            info_table.add_row("AI Summaries", ai_status)
+            
             rich_console.print(info_table)
         else:
             print(f"Source: {source_url}:{source_port}")
@@ -235,6 +239,9 @@ def main() -> int:
             
             https = getattr(args, 'migrate_https', True)
             print(f"HTTPS: {https}")
+            
+            no_ai = getattr(args, 'no_ai', False)
+            print(f"AI Summaries: {'Disabled' if no_ai else 'Enabled'}")
     
     elif is_snapshot_op:
         # Show connection info for snapshot operations
@@ -314,6 +321,9 @@ def main() -> int:
             target_api_key = os.getenv("QDRANT_API_KEY_2", os.getenv("QDRANT_API_KEY"))
             https = getattr(args, 'migrate_https', True)
             reverse = getattr(args, 'reverse', False)
+            no_ai = getattr(args, 'no_ai', False)
+            # Set embedding_callback to None when --no-ai is specified
+            embedding_callback = None if no_ai else None  # Currently always None, but explicit for future use
             
             # Build configs
             source_config = {
@@ -429,6 +439,7 @@ def main() -> int:
                             mysql_config=mysql_config,
                             reverse=reverse,
                             progress_callback=progress_callback,
+                            embedding_callback=embedding_callback,
                             status_callback=status_callback
                         )
                     )
@@ -477,6 +488,7 @@ def main() -> int:
                             mysql_config=mysql_config,
                             reverse=reverse,
                             progress_callback=progress_callback,
+                            embedding_callback=embedding_callback,
                             status_callback=status_callback
                         )
                     )

@@ -29,7 +29,8 @@ def _execute_migration_process(
     target_config: Dict[str, Any],
     mysql_config: Optional[Dict[str, Any]],
     mode: str,
-    reverse: bool
+    reverse: bool,
+    enable_ai: bool = True
 ):
     """Standalone function to execute migration in a separate process."""
     try:
@@ -77,8 +78,12 @@ def _execute_migration_process(
         emit("log_output", f"  Target Qdrant: {target_url_display} (HTTPS: {target_config.get('https', False)})\n", "info")
         emit("log_output", f"  MySQL Source: {mysql_display}\n", "info")
         emit("log_output", f"  Reverse Mode: {reverse}\n", "info")
+        emit("log_output", f"  AI Summaries: {'Enabled' if enable_ai else 'Disabled'}\n", "info")
         emit("log_output", f"\n", "info")
         emit("progress_update", 5, "Initializing migration...")
+        
+        # Set embedding_callback to None when AI is disabled
+        embedding_callback = None if not enable_ai else None  # Currently always None, but explicit for future use
         
         # Progress callback
         def progress_callback(collection_id: str, current: int, total: Optional[int]):
@@ -121,6 +126,7 @@ def _execute_migration_process(
                         mysql_config=mysql_config,
                         reverse=reverse,
                         progress_callback=progress_callback,
+                        embedding_callback=embedding_callback,
                         status_callback=status_callback,
                         cancellation_flag=check_cancellation
                     )
@@ -159,6 +165,7 @@ def _execute_migration_process(
                         mysql_config=mysql_config,
                         reverse=reverse,
                         progress_callback=progress_callback,
+                        embedding_callback=embedding_callback,
                         status_callback=status_callback,
                         cancellation_flag=check_cancellation
                     )
@@ -323,7 +330,8 @@ class MigrationController:
         mysql_config: Optional[Dict[str, Any]],
         mode: str,
         reverse: bool = False,
-        https: bool = True
+        https: bool = True,
+        enable_ai: bool = True
     ):
         """
         Execute migration in a separate thread.
@@ -335,6 +343,7 @@ class MigrationController:
             mode: Migration mode ('migrate', 'migrate-usc', 'check')
             reverse: Reverse migration direction
             https: Use HTTPS
+            enable_ai: Enable AI-generated summaries (default: True)
         """
         if self._is_running:
             messagebox.showwarning("Migration Running", "A migration is already in progress.")
@@ -366,7 +375,7 @@ class MigrationController:
         # Use context manager for proper multiprocessing setup in built apps
         self._migration_process = ctx.Process(
             target=_execute_migration_process,
-            args=(self._queue, source_config, target_config, mysql_config, mode, reverse),
+            args=(self._queue, source_config, target_config, mysql_config, mode, reverse, enable_ai),
             daemon=True
         )
         self._migration_process.start()

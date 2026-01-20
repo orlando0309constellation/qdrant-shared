@@ -27,6 +27,7 @@ class MigrationConfig:
     mysql_database: Optional[str] = None
     use_default_mysql: bool = True
     reverse: bool = False
+    enable_ai: bool = True  # Enable AI-generated summaries by default
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -46,7 +47,8 @@ class MigrationConfig:
             'mysql_password': self.mysql_password,
             'mysql_database': self.mysql_database,
             'use_default_mysql': self.use_default_mysql,
-            'reverse': self.reverse
+            'reverse': self.reverse,
+            'enable_ai': self.enable_ai
         }
     
     @classmethod
@@ -68,7 +70,8 @@ class MigrationConfig:
             mysql_password=data.get('mysql_password'),
             mysql_database=data.get('mysql_database'),
             use_default_mysql=data.get('use_default_mysql', True),
-            reverse=data.get('reverse', False)
+            reverse=data.get('reverse', False),
+            enable_ai=data.get('enable_ai', True)
         )
     
     def get_source_config(self) -> Dict[str, Any]:
@@ -111,7 +114,8 @@ class MigrationConfig:
             f"Source: {self.source_url}:{self.source_port} (API: {source_key}, HTTPS: {self.source_https})\n"
             f"Target: {self.target_url}:{self.target_port} (API: {target_key}, HTTPS: {self.target_https})\n"
             f"MySQL: {mysql_info}\n"
-            f"Reverse: {self.reverse}"
+            f"Reverse: {self.reverse}\n"
+            f"AI Summaries: {'Enabled' if self.enable_ai else 'Disabled'}"
         )
 
 
